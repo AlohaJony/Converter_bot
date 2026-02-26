@@ -19,70 +19,68 @@ bot = MaxBotClient(CONVERTER_BOT_TOKEN)
 BOT_ID = None
 
 # Состояния пользователей: после получения файла ждём выбора формата
-# user_state[chat_id] = {'input_path': путь_к_скачанному_файлу}
 user_state = {}
 
-# Доступные форматы для разных исходных расширений (пока только изображения)
+# Доступные форматы для разных исходных расширений
 TARGET_FORMATS = {
     'png': ['jpg', 'webp', 'bmp', 'tiff'],
     'jpg': ['png', 'webp', 'bmp', 'tiff'],
     'jpeg': ['png', 'webp', 'bmp', 'tiff'],
-    'gif': ['mp4', 'webm'],  # для gif нужна будет особая обработка, пока заглушка
+    'gif': ['mp4', 'webm'],
     'bmp': ['jpg', 'png', 'webp'],
     'webp': ['jpg', 'png'],
     'tiff': ['jpg', 'png'],
 }
 
 def get_target_formats(ext):
-    """Возвращает список доступных форматов для данного расширения."""
     return TARGET_FORMATS.get(ext.lower(), [])
 
 def handle_update(update):
     global BOT_ID
     update_type = update.get('update_type')
-    logger.info(f"Update: {update_type}")
+    logger.info(f"Update type: {update_type}")
+    # Логируем полную структуру для отладки (можно убрать позже)
+    logger.debug(f"Full update: {update}")
 
     if update_type == 'message_created':
-        msg = update['message']
-        # Игнорируем сообщения от самого бота
-        if msg['sender'].get('is_bot') and msg['sender'].get('user_id') == BOT_ID:
+        msg = update.get('message')
+        if not msg:
+            logger.error("No 'message' field in update")
             return
 
-        # Определяем chat_id
-        chat_id = msg['recipient'].get('chat_id') or msg['recipient'].get('user_id')
-        user_info = msg['sender']
-        # user_id пока не используем, но может пригодиться позже
+        # Игнорируем свои сообщения
+        if msg.get('sender', {}).get('is_bot') and msg['sender'].get('user_id') == BOT_ID:
+            return
 
-        # Проверяем наличие вложений (файлов)
+        chat_id = msg.get('recipient', {}).get('chat_id') or msg.get('recipient', {}).get('user_id')
+        if not chat_id:
+            logger.error("No chat_id in message")
+            return
+
+        # Проверяем наличие вложений
         attachments = msg.get('body', {}).get('attachments', [])
         if attachments:
             att = attachments[0]
-            # Если это файл, изображение, видео или аудио – пытаемся обработать
             if att['type'] in ['file', 'image', 'video', 'audio']:
                 file_token = att['payload'].get('token')
                 if file_token:
-                    # Здесь в реальности нужно скачать файл по токену.
-                    # Пока для теста создаём тестовое изображение.
-                    # В дальнейшем заменим на реальное скачивание.
+                    # ВРЕМЕННО: создаём тестовое изображение
                     temp_img = tempfile.NamedTemporaryFile(suffix='.png', delete=False)
                     temp_img.close()
-                    # Создаём простое красное изображение 100x100
                     from PIL import Image
                     img = Image.new('RGB', (100, 100), color='red')
                     img.save(temp_img.name)
                     input_path = temp_img.name
-                    ext = 'png'  # для теста считаем расширение png
+                    ext = 'png'
 
-                    # Сохраняем путь к файлу в состоянии пользователя
                     user_state[chat_id] = {'input_path': input_path}
-
-                    # Получаем доступные форматы для этого расширения
                     formats = get_target_formats(ext)
+
                     if not formats:
-                        bot.send_message(chat_id, "Для этого типа файла пока нет доступных форматов конвертации.")
+                        bot.send_message(chat_id, "Для этого типа файла нет доступных форматов конвертации.")
                         return
 
-                    # Строим клавиатуру с кнопками выбора формата
+                    # Строим клавиатуру
                     buttons = []
                     row = []
                     for fmt in formats:
@@ -92,7 +90,6 @@ def handle_update(update):
                             row = []
                     if row:
                         buttons.append(row)
-                    # Добавляем кнопку отмены
                     buttons.append([{"type": "callback", "text": "❌ Отмена", "payload": "cancel"}])
 
                     keyboard = {
@@ -105,7 +102,7 @@ def handle_update(update):
             else:
                 bot.send_message(chat_id, "Пожалуйста, отправьте файл для конвертации.")
         else:
-            # Если нет вложений – обрабатываем текстовые команды
+            # Текстовые команды
             text = msg.get('body', {}).get('text', '').strip()
             if text == '/start':
                 welcome = (
@@ -117,30 +114,41 @@ def handle_update(update):
                 bot.send_message(chat_id, "Отправьте файл с изображением для конвертации или /start")
 
     elif update_type == 'message_callback':
-        callback = update['callback']
-        chat_id = callback['message']['recipient']['chat_id']
-        payload = callback['payload']
+        callback = update.get('callback')
+        if not callback:
+            logger.error("No 'callback' field in update")
+            return
+
+        # Проверяем наличие message в callback
+        callback_msg = callback.get('message')
+        if not callback_msg:
+            logger.error(f"No 'message' in callback: {callback}")
+            return
+
+        chat_id = callback_msg.get('recipient', {}).get('chat_id')
+        if not chat_id:
+            logger.error("No chat_id in callback message")
+            return
+
+        payload = callback.get('payload')
+        logger.info(f"Callback payload: {payload}")
 
         if payload == 'cancel':
             if chat_id in user_state:
-                # Удаляем временный файл, если он есть
                 try:
                     os.remove(user_state[chat_id]['input_path'])
                 except:
                     pass
                 del user_state[chat_id]
             bot.send_message(chat_id, "Операция отменена.")
-        elif payload.startswith('convert_to_'):
+        elif payload and payload.startswith('convert_to_'):
             target_format = payload.replace('convert_to_', '')
             if chat_id in user_state:
                 input_path = user_state[chat_id]['input_path']
-                # Показываем, что бот "печатает"
                 bot.send_action(chat_id, "typing_on")
                 converter = ImageConverter()
                 try:
-                    # Конвертируем изображение
                     output_path = converter.convert(input_path, target_format)
-                    # Загружаем результат в MAX
                     token = bot.upload_file(output_path, 'image')
                     if token:
                         attachment = bot.build_attachment('image', token)
@@ -151,7 +159,6 @@ def handle_update(update):
                     logger.error(f"Conversion error: {e}")
                     bot.send_message(chat_id, f"❌ Ошибка при конвертации: {str(e)}")
                 finally:
-                    # Очищаем временные файлы
                     converter.cleanup()
                     try:
                         os.remove(input_path)
@@ -160,6 +167,10 @@ def handle_update(update):
                     del user_state[chat_id]
             else:
                 bot.send_message(chat_id, "Сессия устарела. Отправьте файл заново.")
+        else:
+            bot.send_message(chat_id, "Неизвестная команда.")
+    else:
+        logger.warning(f"Unknown update type: {update_type}")
 
 def main():
     global BOT_ID
