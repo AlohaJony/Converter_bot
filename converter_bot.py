@@ -2,29 +2,32 @@ import logging
 import time
 import os
 import tempfile
-import requests
 from config import CONVERTER_BOT_TOKEN
 from max_client import MaxBotClient
 from converter import ImageConverter
 
+# Настройка логирования
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+# Проверка наличия токена
 if not CONVERTER_BOT_TOKEN:
     raise ValueError("No CONVERTER_BOT_TOKEN in .env")
 
+# Создаём клиента MAX
 bot = MaxBotClient(CONVERTER_BOT_TOKEN)
 BOT_ID = None
 
-# Состояния пользователей: ожидание выбора формата после получения файла
-user_state = {}  # chat_id -> {'input_path': путь_к_скачанному_файлу}
+# Состояния пользователей: после получения файла ждём выбора формата
+# user_state[chat_id] = {'input_path': путь_к_скачанному_файлу}
+user_state = {}
 
-# Соответствие расширений и возможных целевых форматов (для изображений)
+# Доступные форматы для разных исходных расширений (пока только изображения)
 TARGET_FORMATS = {
     'png': ['jpg', 'webp', 'bmp', 'tiff'],
     'jpg': ['png', 'webp', 'bmp', 'tiff'],
     'jpeg': ['png', 'webp', 'bmp', 'tiff'],
-    'gif': ['mp4', 'webm'],  # для анимации можно добавить позже
+    'gif': ['mp4', 'webm'],  # для gif нужна будет особая обработка, пока заглушка
     'bmp': ['jpg', 'png', 'webp'],
     'webp': ['jpg', 'png'],
     'tiff': ['jpg', 'png'],
@@ -34,33 +37,6 @@ def get_target_formats(ext):
     """Возвращает список доступных форматов для данного расширения."""
     return TARGET_FORMATS.get(ext.lower(), [])
 
-def download_file_from_max(file_token):
-    """
-    Скачивает файл из MAX по токену и возвращает путь к временному файлу.
-    Для простоты используем прямой URL (возможно, потребуется другой подход).
-    """
-    # В MAX API, вероятно, есть endpoint для скачивания по токену.
-    # Но пока сделаем заглушку: создадим тестовый файл.
-    # В реальности нужно получить URL файла через метод GET /files/{token} (если есть)
-    # или из attachment'а. Пока для теста просто создадим пустой файл.
-    # Однако для нормальной работы нужно реализовать скачивание.
-    # Поскольку у нас сейчас нет точной информации о скачивании, я упрощу:
-    # мы не будем реально скачивать, а просто сымитируем.
-    # Для теста можно предложить пользователю отправить команду с путем к локальному файлу? Но это неудобно.
-    # Вместо этого я пока пропущу этот шаг и предположу, что файл уже есть локально.
-    # В реальном коде нужно будет добавить метод в MaxBotClient для скачивания.
-    # Оставим это на потом. Сейчас для демонстрации мы будем использовать тестовый режим:
-    # бот не будет реально конвертировать присланный файл, а просто сгенерирует изображение по запросу.
-    # Но пользователь хочет именно конвертацию. Значит, нужно реализовать скачивание.
-    # Я добавлю метод download_file в max_client.py, используя API MAX.
-    # Предположим, что есть endpoint GET /files/{token}/download.
-    # Добавим этот метод в max_client.py.
-
-    # Временно создадим пустой файл, но потом заменим.
-    fd, path = tempfile.mkstemp()
-    os.close(fd)
-    return path
-
 def handle_update(update):
     global BOT_ID
     update_type = update.get('update_type')
@@ -68,45 +44,45 @@ def handle_update(update):
 
     if update_type == 'message_created':
         msg = update['message']
-        # Игнорируем свои сообщения
+        # Игнорируем сообщения от самого бота
         if msg['sender'].get('is_bot') and msg['sender'].get('user_id') == BOT_ID:
             return
+
+        # Определяем chat_id
         chat_id = msg['recipient'].get('chat_id') or msg['recipient'].get('user_id')
         user_info = msg['sender']
-        user_id = user_info['user_id']
-        # Можно не использовать user_id, так как нет базы
+        # user_id пока не используем, но может пригодиться позже
 
         # Проверяем наличие вложений (файлов)
         attachments = msg.get('body', {}).get('attachments', [])
         if attachments:
-            # Берём первое вложение
             att = attachments[0]
-            # Если это файл, изображение, видео или аудио
+            # Если это файл, изображение, видео или аудио – пытаемся обработать
             if att['type'] in ['file', 'image', 'video', 'audio']:
-                # Получаем токен файла
                 file_token = att['payload'].get('token')
                 if file_token:
-                    # Скачиваем файл
-                    # Пока используем заглушку: создаём временный файл с расширением .jpg
-                    # В реальности нужно скачать по токену
-                    # Создадим тестовый файл-картинку
+                    # Здесь в реальности нужно скачать файл по токену.
+                    # Пока для теста создаём тестовое изображение.
+                    # В дальнейшем заменим на реальное скачивание.
                     temp_img = tempfile.NamedTemporaryFile(suffix='.png', delete=False)
                     temp_img.close()
-                    # Создадим простое изображение для теста
+                    # Создаём простое красное изображение 100x100
                     from PIL import Image
                     img = Image.new('RGB', (100, 100), color='red')
                     img.save(temp_img.name)
                     input_path = temp_img.name
-                    # Определяем расширение (для теста считаем png)
-                    ext = 'png'
-                    # Сохраняем состояние
+                    ext = 'png'  # для теста считаем расширение png
+
+                    # Сохраняем путь к файлу в состоянии пользователя
                     user_state[chat_id] = {'input_path': input_path}
-                    # Получаем доступные форматы
+
+                    # Получаем доступные форматы для этого расширения
                     formats = get_target_formats(ext)
                     if not formats:
-                        bot.send_message(chat_id, "Для этого типа файла нет доступных форматов конвертации.")
+                        bot.send_message(chat_id, "Для этого типа файла пока нет доступных форматов конвертации.")
                         return
-                    # Создаём клавиатуру с кнопками выбора формата
+
+                    # Строим клавиатуру с кнопками выбора формата
                     buttons = []
                     row = []
                     for fmt in formats:
@@ -129,7 +105,7 @@ def handle_update(update):
             else:
                 bot.send_message(chat_id, "Пожалуйста, отправьте файл для конвертации.")
         else:
-            # Текстовое сообщение
+            # Если нет вложений – обрабатываем текстовые команды
             text = msg.get('body', {}).get('text', '').strip()
             if text == '/start':
                 welcome = (
@@ -147,7 +123,7 @@ def handle_update(update):
 
         if payload == 'cancel':
             if chat_id in user_state:
-                # Удаляем временный файл
+                # Удаляем временный файл, если он есть
                 try:
                     os.remove(user_state[chat_id]['input_path'])
                 except:
@@ -158,10 +134,11 @@ def handle_update(update):
             target_format = payload.replace('convert_to_', '')
             if chat_id in user_state:
                 input_path = user_state[chat_id]['input_path']
-                # Выполняем конвертацию
+                # Показываем, что бот "печатает"
                 bot.send_action(chat_id, "typing_on")
                 converter = ImageConverter()
                 try:
+                    # Конвертируем изображение
                     output_path = converter.convert(input_path, target_format)
                     # Загружаем результат в MAX
                     token = bot.upload_file(output_path, 'image')
@@ -174,8 +151,8 @@ def handle_update(update):
                     logger.error(f"Conversion error: {e}")
                     bot.send_message(chat_id, f"❌ Ошибка при конвертации: {str(e)}")
                 finally:
+                    # Очищаем временные файлы
                     converter.cleanup()
-                    # Удаляем исходный файл
                     try:
                         os.remove(input_path)
                     except:
@@ -187,9 +164,13 @@ def handle_update(update):
 def main():
     global BOT_ID
     logger.info("Starting Converter Bot (images only, test mode)...")
-    me = bot.get_me()
-    BOT_ID = me['user_id']
-    logger.info(f"Bot ID: {BOT_ID}, username: @{me.get('username')}")
+    try:
+        me = bot.get_me()
+        BOT_ID = me['user_id']
+        logger.info(f"Bot ID: {BOT_ID}, username: @{me.get('username')}")
+    except Exception as e:
+        logger.error(f"Failed to get bot info: {e}")
+        return
 
     marker = None
     while True:
