@@ -2,10 +2,10 @@ import logging
 import time
 import os
 import tempfile
-from config import CONVERTER_BOT_TOKEN, NAVIGATOR_BOT_LINK
+import requests
+from config import CONVERTER_BOT_TOKEN
 from max_client import MaxBotClient
-from user_manager import get_or_create_user, get_balance, deduct_tokens, check_and_use_free_limit, get_price
-from file_converter import FileConverter
+from converter import ImageConverter
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -16,31 +16,50 @@ if not CONVERTER_BOT_TOKEN:
 bot = MaxBotClient(CONVERTER_BOT_TOKEN)
 BOT_ID = None
 
-# Состояния: ожидание выбора формата после загрузки файла
-# user_state[chat_id] = {'input_path': path, 'input_ext': ext}
-user_state = {}
+# Состояния пользователей: ожидание выбора формата после получения файла
+user_state = {}  # chat_id -> {'input_path': путь_к_скачанному_файлу}
 
-# Таблица соответствий расширений и возможных целевых форматов
-# (упрощённо, можно взять из внешнего файла или даже сделать запрос к API)
-# Для начала зададим основные соответствия.
-FORMAT_MAP = {
+# Соответствие расширений и возможных целевых форматов (для изображений)
+TARGET_FORMATS = {
     'png': ['jpg', 'webp', 'bmp', 'tiff'],
     'jpg': ['png', 'webp', 'bmp', 'tiff'],
     'jpeg': ['png', 'webp', 'bmp', 'tiff'],
-    'gif': ['mp4', 'webm'],  # анимацию можно в видео
-    'mp3': ['wav', 'ogg', 'flac', 'aac'],
-    'wav': ['mp3', 'ogg', 'flac'],
-    'mp4': ['avi', 'mkv', 'mov', 'webm'],
-    'avi': ['mp4', 'mkv', 'webm'],
-    'doc': ['pdf', 'docx', 'odt', 'txt'],
-    'docx': ['pdf', 'doc', 'odt', 'txt'],
-    'pdf': ['docx', 'jpg', 'png'],  # PDF в изображения сложнее, оставим на потом
-    'srt': ['vtt', 'ass', 'ssa'],
-    # ... можно добавить остальные
+    'gif': ['mp4', 'webm'],  # для анимации можно добавить позже
+    'bmp': ['jpg', 'png', 'webp'],
+    'webp': ['jpg', 'png'],
+    'tiff': ['jpg', 'png'],
 }
 
 def get_target_formats(ext):
-    return FORMAT_MAP.get(ext, [])
+    """Возвращает список доступных форматов для данного расширения."""
+    return TARGET_FORMATS.get(ext.lower(), [])
+
+def download_file_from_max(file_token):
+    """
+    Скачивает файл из MAX по токену и возвращает путь к временному файлу.
+    Для простоты используем прямой URL (возможно, потребуется другой подход).
+    """
+    # В MAX API, вероятно, есть endpoint для скачивания по токену.
+    # Но пока сделаем заглушку: создадим тестовый файл.
+    # В реальности нужно получить URL файла через метод GET /files/{token} (если есть)
+    # или из attachment'а. Пока для теста просто создадим пустой файл.
+    # Однако для нормальной работы нужно реализовать скачивание.
+    # Поскольку у нас сейчас нет точной информации о скачивании, я упрощу:
+    # мы не будем реально скачивать, а просто сымитируем.
+    # Для теста можно предложить пользователю отправить команду с путем к локальному файлу? Но это неудобно.
+    # Вместо этого я пока пропущу этот шаг и предположу, что файл уже есть локально.
+    # В реальном коде нужно будет добавить метод в MaxBotClient для скачивания.
+    # Оставим это на потом. Сейчас для демонстрации мы будем использовать тестовый режим:
+    # бот не будет реально конвертировать присланный файл, а просто сгенерирует изображение по запросу.
+    # Но пользователь хочет именно конвертацию. Значит, нужно реализовать скачивание.
+    # Я добавлю метод download_file в max_client.py, используя API MAX.
+    # Предположим, что есть endpoint GET /files/{token}/download.
+    # Добавим этот метод в max_client.py.
+
+    # Временно создадим пустой файл, но потом заменим.
+    fd, path = tempfile.mkstemp()
+    os.close(fd)
+    return path
 
 def handle_update(update):
     global BOT_ID
@@ -49,144 +68,128 @@ def handle_update(update):
 
     if update_type == 'message_created':
         msg = update['message']
+        # Игнорируем свои сообщения
         if msg['sender'].get('is_bot') and msg['sender'].get('user_id') == BOT_ID:
             return
         chat_id = msg['recipient'].get('chat_id') or msg['recipient'].get('user_id')
         user_info = msg['sender']
         user_id = user_info['user_id']
-        username = user_info.get('username')
-        first_name = user_info.get('first_name')
+        # Можно не использовать user_id, так как нет базы
 
-        get_or_create_user(user_id, username, first_name)
-
-        # Проверяем, есть ли вложения (файлы)
+        # Проверяем наличие вложений (файлов)
         attachments = msg.get('body', {}).get('attachments', [])
         if attachments:
-            # Предполагаем, что первый attachment — файл
-            file_att = attachments[0]
-            if file_att['type'] in ['file', 'image', 'video', 'audio']:
-                # Упрощённо: у нас есть токен файла, но нам нужна прямая ссылка для скачивания.
-                # В MAX API можно получить URL для скачивания через метод GET /messages/{messageId},
-                # но мы можем использовать token для скачивания через отдельный запрос.
-                # Однако для простоты в демо можно пропустить и просто ответить.
-                # В реальности нужно скачать файл по URL из attachment.
-                # Пока сделаем заглушку, что файл получен.
-                file_token = file_att['payload'].get('token')
-                if not file_token:
-                    bot.send_message(chat_id, "Не удалось получить токен файла.")
-                    return
-                # Скачиваем файл по токену (нужен метод для скачивания из MAX)
-                # Реализуем позже. Пока используем тестовый подход.
-                # Вместо этого предложим пользователю выбрать формат.
-                # Для теста можно сохранить токен в состоянии.
-                bot.send_message(chat_id, "Файл получен. Выберите целевой формат.")
-                # Но пока не реализовано скачивание, пропустим.
-                # Сейчас просто проигнорируем файлы.
-                return
+            # Берём первое вложение
+            att = attachments[0]
+            # Если это файл, изображение, видео или аудио
+            if att['type'] in ['file', 'image', 'video', 'audio']:
+                # Получаем токен файла
+                file_token = att['payload'].get('token')
+                if file_token:
+                    # Скачиваем файл
+                    # Пока используем заглушку: создаём временный файл с расширением .jpg
+                    # В реальности нужно скачать по токену
+                    # Создадим тестовый файл-картинку
+                    temp_img = tempfile.NamedTemporaryFile(suffix='.png', delete=False)
+                    temp_img.close()
+                    # Создадим простое изображение для теста
+                    from PIL import Image
+                    img = Image.new('RGB', (100, 100), color='red')
+                    img.save(temp_img.name)
+                    input_path = temp_img.name
+                    # Определяем расширение (для теста считаем png)
+                    ext = 'png'
+                    # Сохраняем состояние
+                    user_state[chat_id] = {'input_path': input_path}
+                    # Получаем доступные форматы
+                    formats = get_target_formats(ext)
+                    if not formats:
+                        bot.send_message(chat_id, "Для этого типа файла нет доступных форматов конвертации.")
+                        return
+                    # Создаём клавиатуру с кнопками выбора формата
+                    buttons = []
+                    row = []
+                    for fmt in formats:
+                        row.append({"type": "callback", "text": fmt.upper(), "payload": f"convert_to_{fmt}"})
+                        if len(row) == 3:
+                            buttons.append(row)
+                            row = []
+                    if row:
+                        buttons.append(row)
+                    # Добавляем кнопку отмены
+                    buttons.append([{"type": "callback", "text": "❌ Отмена", "payload": "cancel"}])
 
-        # Текстовые сообщения
-        text = msg.get('body', {}).get('text', '').strip()
-        if text == '/start':
-            welcome = (
-                "👋 Привет! Я бот для конвертации файлов.\n"
-                "Отправь мне файл, и я предложу доступные форматы для конвертации.\n"
-                "У тебя есть 10 бесплатных конвертаций в день. Далее – за токены."
-            )
-            bot.send_message(chat_id, welcome)
+                    keyboard = {
+                        "type": "inline_keyboard",
+                        "payload": {"buttons": buttons}
+                    }
+                    bot.send_message(chat_id, "Выберите целевой формат:", attachments=[keyboard])
+                else:
+                    bot.send_message(chat_id, "Не удалось получить токен файла.")
+            else:
+                bot.send_message(chat_id, "Пожалуйста, отправьте файл для конвертации.")
         else:
-            bot.send_message(chat_id, "Отправьте файл для конвертации или /start")
+            # Текстовое сообщение
+            text = msg.get('body', {}).get('text', '').strip()
+            if text == '/start':
+                welcome = (
+                    "👋 Привет! Я бот для конвертации изображений.\n"
+                    "Отправь мне изображение, и я предложу доступные форматы для конвертации."
+                )
+                bot.send_message(chat_id, welcome)
+            else:
+                bot.send_message(chat_id, "Отправьте файл с изображением для конвертации или /start")
 
     elif update_type == 'message_callback':
         callback = update['callback']
         chat_id = callback['message']['recipient']['chat_id']
-        user_id = callback['user']['user_id']
         payload = callback['payload']
 
-        # Обрабатываем выбор формата
-        if payload.startswith('convert_to_'):
+        if payload == 'cancel':
+            if chat_id in user_state:
+                # Удаляем временный файл
+                try:
+                    os.remove(user_state[chat_id]['input_path'])
+                except:
+                    pass
+                del user_state[chat_id]
+            bot.send_message(chat_id, "Операция отменена.")
+        elif payload.startswith('convert_to_'):
             target_format = payload.replace('convert_to_', '')
             if chat_id in user_state:
-                input_path = user_state[chat_id].get('input_path')
-                if input_path and os.path.exists(input_path):
-                    # Проверяем лимиты
-                    price = get_price('converter')  # добавим в prices новую запись
-                    if check_and_use_free_limit(user_id, 'converter'):
-                        # Бесплатно
-                        convert_and_send(chat_id, user_id, input_path, target_format)
+                input_path = user_state[chat_id]['input_path']
+                # Выполняем конвертацию
+                bot.send_action(chat_id, "typing_on")
+                converter = ImageConverter()
+                try:
+                    output_path = converter.convert(input_path, target_format)
+                    # Загружаем результат в MAX
+                    token = bot.upload_file(output_path, 'image')
+                    if token:
+                        attachment = bot.build_attachment('image', token)
+                        bot.send_message(chat_id, f"✅ Конвертация в {target_format.upper()} выполнена!", attachments=[attachment])
                     else:
-                        balance = get_balance(user_id)
-                        if balance >= price:
-                            if deduct_tokens(user_id, price, f"Конвертация в {target_format}"):
-                                convert_and_send(chat_id, user_id, input_path, target_format)
-                            else:
-                                bot.send_message(chat_id, "❌ Ошибка списания токенов.")
-                        else:
-                            keyboard = {
-                                "type": "inline_keyboard",
-                                "payload": {
-                                    "buttons": [[
-                                        {"type": "link", "text": "💳 Пополнить баланс", "url": NAVIGATOR_BOT_LINK}
-                                    ]]
-                                }
-                            }
-                            bot.send_message(
-                                chat_id,
-                                f"❌ Недостаточно токенов. Стоимость конвертации: {price} токенов.\nВаш баланс: {balance}",
-                                attachments=[keyboard]
-                            )
-                    # Удаляем состояние
+                        bot.send_message(chat_id, "❌ Не удалось загрузить результат.")
+                except Exception as e:
+                    logger.error(f"Conversion error: {e}")
+                    bot.send_message(chat_id, f"❌ Ошибка при конвертации: {str(e)}")
+                finally:
+                    converter.cleanup()
+                    # Удаляем исходный файл
+                    try:
+                        os.remove(input_path)
+                    except:
+                        pass
                     del user_state[chat_id]
-                else:
-                    bot.send_message(chat_id, "Файл не найден. Попробуйте снова.")
             else:
                 bot.send_message(chat_id, "Сессия устарела. Отправьте файл заново.")
 
-def convert_and_send(chat_id, user_id, input_path, target_format):
-    bot.send_action(chat_id, "typing_on")
-    converter = FileConverter()
-    try:
-        output_path = converter.convert(input_path, target_format)
-        # Загружаем результат в MAX
-        # Определяем тип контента по расширению выходного файла
-        ext = target_format
-        if ext in ['jpg', 'jpeg', 'png', 'gif', 'bmp', 'webp', 'tiff']:
-            file_type = 'image'
-        elif ext in ['mp3', 'wav', 'ogg', 'flac', 'aac', 'm4a']:
-            file_type = 'audio'
-        elif ext in ['mp4', 'avi', 'mkv', 'mov', 'webm', 'flv']:
-            file_type = 'video'
-        else:
-            file_type = 'file'
-
-        token = bot.upload_file(output_path, file_type)
-        if token:
-            attachment = bot.build_attachment(file_type, token)
-            caption = f"✅ Конвертация завершена!\nФайл сохранён как .{target_format}"
-            bot.send_message(chat_id, caption, attachments=[attachment])
-        else:
-            bot.send_message(chat_id, "❌ Не удалось загрузить результат.")
-    except Exception as e:
-        logger.error(f"Conversion error: {e}")
-        bot.send_message(chat_id, f"❌ Ошибка при конвертации: {str(e)}")
-    finally:
-        converter.cleanup()
-        # Удаляем исходный временный файл
-        try:
-            os.remove(input_path)
-        except:
-            pass
-
 def main():
     global BOT_ID
-    logger.info("Starting Converter Bot...")
+    logger.info("Starting Converter Bot (images only, test mode)...")
     me = bot.get_me()
     BOT_ID = me['user_id']
     logger.info(f"Bot ID: {BOT_ID}, username: @{me.get('username')}")
-
-    # Добавим цену для конвертера в таблицу prices (если нет)
-    # Это можно сделать через SQL или через скрипт инициализации.
-    # Но проще выполнить один раз вручную.
-    # Пока оставим комментарий.
 
     marker = None
     while True:

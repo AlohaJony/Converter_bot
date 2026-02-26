@@ -32,6 +32,34 @@ class MaxBotClient:
         resp = self._request("POST", path, json={"action": action})
         return resp.get("success", False)
 
+    def upload_file(self, file_path: str, file_type: str) -> Optional[str]:
+        """
+        Загружает файл в MAX и возвращает токен.
+        Упрощённая версия для изображений.
+        """
+        # Получаем URL для загрузки
+        upload_info = self._request("POST", "/uploads", params={"type": file_type})
+        upload_url = upload_info["url"]
+
+        # Загружаем файл
+        with open(file_path, "rb") as f:
+            files = {"data": (file_path, f, "application/octet-stream")}
+            resp = requests.post(upload_url, files=files, timeout=60)
+            resp.raise_for_status()
+            result = resp.json()
+            # Для изображений токен обычно лежит в result['token'] или result['photos'][...]['token']
+            token = result.get('token')
+            if not token and 'photos' in result:
+                # Извлекаем токен из структуры photos
+                for photo in result['photos'].values():
+                    if isinstance(photo, dict) and 'token' in photo:
+                        token = photo['token']
+                        break
+            return token
+
+    def build_attachment(self, file_type: str, token: str) -> Dict:
+        return {"type": file_type, "payload": {"token": token}}
+
     def send_message(
         self,
         chat_id: int,
