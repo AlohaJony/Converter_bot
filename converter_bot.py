@@ -44,7 +44,11 @@ def handle_update(update):
         if msg.get('sender', {}).get('is_bot') and msg['sender'].get('user_id') == BOT_ID:
             return
 
-        chat_id = msg.get('recipient', {}).get('chat_id') or msg.get('recipient', {}).get('user_id')
+        # В личных сообщениях recipient содержит user_id
+        chat_id = msg.get('recipient', {}).get('user_id')
+        if not chat_id:
+            # Если это групповой чат, может быть chat_id
+            chat_id = msg.get('recipient', {}).get('chat_id')
         if not chat_id:
             logger.error("No chat_id in message")
             return
@@ -55,7 +59,7 @@ def handle_update(update):
             if att['type'] in ['file', 'image', 'video', 'audio']:
                 file_token = att['payload'].get('token')
                 if file_token:
-                    # ВРЕМЕННО: тестовое изображение
+                    # ВРЕМЕННО: тестовое изображение (позже заменим на скачивание реального файла)
                     temp_img = tempfile.NamedTemporaryFile(suffix='.png', delete=False)
                     temp_img.close()
                     from PIL import Image
@@ -71,6 +75,7 @@ def handle_update(update):
                         bot.send_message(chat_id, "Для этого типа файла нет доступных форматов конвертации.")
                         return
 
+                    # Строим клавиатуру
                     buttons = []
                     row = []
                     for fmt in formats:
@@ -108,22 +113,16 @@ def handle_update(update):
             logger.error("No 'callback' field in update")
             return
 
-        # Логируем полный callback, чтобы понять его структуру
         logger.info(f"Callback data: {callback}")
 
-        # Пытаемся извлечь chat_id (может быть в разных местах)
-        chat_id = None
-        if 'message' in callback:
-            # Если есть вложенное сообщение
-            chat_id = callback['message'].get('recipient', {}).get('chat_id')
+        # В личных сообщениях chat_id = user_id
+        user_info = callback.get('user')
+        if not user_info:
+            logger.error("No user in callback")
+            return
+        chat_id = user_info.get('user_id')
         if not chat_id:
-            # Иногда chat_id идёт прямо в callback
-            chat_id = callback.get('chat_id')
-        if not chat_id:
-            # Или в информации о пользователе
-            chat_id = callback.get('user', {}).get('chat_id')
-        if not chat_id:
-            logger.error("Cannot determine chat_id from callback")
+            logger.error("No user_id in callback user")
             return
 
         payload = callback.get('payload')
