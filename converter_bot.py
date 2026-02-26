@@ -15,6 +15,7 @@ if not CONVERTER_BOT_TOKEN:
 bot = MaxBotClient(CONVERTER_BOT_TOKEN)
 BOT_ID = None
 
+# Состояния пользователей: user_id -> {'input_path': path}
 user_state = {}
 
 TARGET_FORMATS = {
@@ -41,25 +42,26 @@ def handle_update(update):
             logger.error("No 'message' field in update")
             return
 
-        if msg.get('sender', {}).get('is_bot') and msg['sender'].get('user_id') == BOT_ID:
+        sender = msg.get('sender', {})
+        # Игнорируем свои сообщения
+        if sender.get('is_bot') and sender.get('user_id') == BOT_ID:
+            logger.info("Ignoring message from self")
             return
 
-        # В личных сообщениях recipient содержит user_id
-        chat_id = msg.get('recipient', {}).get('user_id')
-        if not chat_id:
-            # Если это групповой чат, может быть chat_id
-            chat_id = msg.get('recipient', {}).get('chat_id')
-        if not chat_id:
-            logger.error("No chat_id in message")
+        # ID пользователя, которому будем отвечать
+        user_id = sender.get('user_id')
+        if not user_id:
+            logger.error("No user_id in sender")
             return
 
+        # Проверяем наличие вложений
         attachments = msg.get('body', {}).get('attachments', [])
         if attachments:
             att = attachments[0]
             if att['type'] in ['file', 'image', 'video', 'audio']:
                 file_token = att['payload'].get('token')
                 if file_token:
-                    # ВРЕМЕННО: тестовое изображение (позже заменим на скачивание реального файла)
+                    # ВРЕМЕННО: тестовое изображение
                     temp_img = tempfile.NamedTemporaryFile(suffix='.png', delete=False)
                     temp_img.close()
                     from PIL import Image
@@ -68,11 +70,15 @@ def handle_update(update):
                     input_path = temp_img.name
                     ext = 'png'
 
-                    user_state[chat_id] = {'input_path': input_path}
+                    # Сохраняем состояние по user_id
+                    user_state[user_id] = {'input_path': input_path}
                     formats = get_target_formats(ext)
 
                     if not formats:
-                        bot.send_message(chat_id, "Для этого типа файла нет доступных форматов конвертации.")
+                        bot.send_message(
+                            user_id=user_id,
+                            text="Для этого типа файла нет доступных форматов конвертации."
+                        )
                         return
 
                     # Строим клавиатуру
@@ -91,21 +97,35 @@ def handle_update(update):
                         "type": "inline_keyboard",
                         "payload": {"buttons": buttons}
                     }
-                    bot.send_message(chat_id, "Выберите целевой формат:", attachments=[keyboard])
+                    bot.send_message(
+                        user_id=user_id,
+                        text="Выберите целевой формат:",
+                        attachments=[keyboard]
+                    )
                 else:
-                    bot.send_message(chat_id, "Не удалось получить токен файла.")
+                    bot.send_message(
+                        user_id=user_id,
+                        text="Не удалось получить токен файла."
+                    )
             else:
-                bot.send_message(chat_id, "Пожалуйста, отправьте файл для конвертации.")
+                bot.send_message(
+                    user_id=user_id,
+                    text="Пожалуйста, отправьте файл для конвертации."
+                )
         else:
+            # Текстовые команды
             text = msg.get('body', {}).get('text', '').strip()
             if text == '/start':
                 welcome = (
                     "👋 Привет! Я бот для конвертации изображений.\n"
                     "Отправь мне изображение, и я предложу доступные форматы для конвертации."
                 )
-                bot.send_message(chat_id, welcome)
+                bot.send_message(user_id=user_id, text=welcome)
             else:
-                bot.send_message(chat_id, "Отправьте файл с изображением для конвертации или /start")
+                bot.send_message(
+                    user_id=user_id,
+                    text="Отправьте файл с изображением для конвертации или /start"
+                )
 
     elif update_type == 'message_callback':
         callback = update.get('callback')
@@ -120,8 +140,8 @@ def handle_update(update):
         if not user_info:
             logger.error("No user in callback")
             return
-        chat_id = user_info.get('user_id')
-        if not chat_id:
+        user_id = user_info.get('user_id')
+        if not user_id:
             logger.error("No user_id in callback user")
             return
 
@@ -129,41 +149,57 @@ def handle_update(update):
         logger.info(f"Callback payload: {payload}")
 
         if payload == 'cancel':
-            if chat_id in user_state:
+            if user_id in user_state:
                 try:
-                    os.remove(user_state[chat_id]['input_path'])
+                    os.remove(user_state[user_id]['input_path'])
                 except:
                     pass
-                del user_state[chat_id]
-            bot.send_message(chat_id, "Операция отменена.")
+                del user_state[user_id]
+            bot.send_message(user_id=user_id, text="Операция отменена.")
         elif payload and payload.startswith('convert_to_'):
             target_format = payload.replace('convert_to_', '')
-            if chat_id in user_state:
-                input_path = user_state[chat_id]['input_path']
-                bot.send_action(chat_id, "typing_on")
+            if user_id in user_state:
+                input_path = user_state[user_id]['input_path']
+                bot.send_action(user_id, "typing_on")
                 converter = ImageConverter()
                 try:
                     output_path = converter.convert(input_path, target_format)
                     token = bot.upload_file(output_path, 'image')
                     if token:
                         attachment = bot.build_attachment('image', token)
-                        bot.send_message(chat_id, f"✅ Конвертация в {target_format.upper()} выполнена!", attachments=[attachment])
+                        bot.send_message(
+                            user_id=user_id,
+                            text=f"✅ Конвертация в {target_format.upper()} выполнена!",
+                            attachments=[attachment]
+                        )
                     else:
-                        bot.send_message(chat_id, "❌ Не удалось загрузить результат.")
+                        bot.send_message(
+                            user_id=user_id,
+                            text="❌ Не удалось загрузить результат."
+                        )
                 except Exception as e:
                     logger.error(f"Conversion error: {e}")
-                    bot.send_message(chat_id, f"❌ Ошибка при конвертации: {str(e)}")
+                    bot.send_message(
+                        user_id=user_id,
+                        text=f"❌ Ошибка при конвертации: {str(e)}"
+                    )
                 finally:
                     converter.cleanup()
                     try:
                         os.remove(input_path)
                     except:
                         pass
-                    del user_state[chat_id]
+                    del user_state[user_id]
             else:
-                bot.send_message(chat_id, "Сессия устарела. Отправьте файл заново.")
+                bot.send_message(
+                    user_id=user_id,
+                    text="Сессия устарела. Отправьте файл заново."
+                )
         else:
-            bot.send_message(chat_id, "Неизвестная команда.")
+            bot.send_message(
+                user_id=user_id,
+                text="Неизвестная команда."
+            )
     else:
         logger.warning(f"Unknown update type: {update_type}")
 

@@ -35,22 +35,17 @@ class MaxBotClient:
     def upload_file(self, file_path: str, file_type: str) -> Optional[str]:
         """
         Загружает файл в MAX и возвращает токен.
-        Упрощённая версия для изображений.
         """
-        # Получаем URL для загрузки
         upload_info = self._request("POST", "/uploads", params={"type": file_type})
         upload_url = upload_info["url"]
 
-        # Загружаем файл
         with open(file_path, "rb") as f:
             files = {"data": (file_path, f, "application/octet-stream")}
             resp = requests.post(upload_url, files=files, timeout=60)
             resp.raise_for_status()
             result = resp.json()
-            # Для изображений токен обычно лежит в result['token'] или result['photos'][...]['token']
             token = result.get('token')
             if not token and 'photos' in result:
-                # Извлекаем токен из структуры photos
                 for photo in result['photos'].values():
                     if isinstance(photo, dict) and 'token' in photo:
                         token = photo['token']
@@ -62,14 +57,21 @@ class MaxBotClient:
 
     def send_message(
         self,
-        chat_id: int,
         text: str,
+        user_id: Optional[int] = None,
+        chat_id: Optional[int] = None,
         attachments: Optional[List[Dict]] = None,
         format: Optional[str] = None,
         disable_link_preview: bool = False,
     ) -> Dict[str, Any]:
+        if not (user_id or chat_id):
+            raise ValueError("Either user_id or chat_id must be provided")
         payload = {"text": text, "attachments": attachments or []}
         if format:
             payload["format"] = format
-        params = {"chat_id": chat_id, "disable_link_preview": str(disable_link_preview).lower()}
+        params = {"disable_link_preview": str(disable_link_preview).lower()}
+        if user_id:
+            params["user_id"] = user_id
+        if chat_id:
+            params["chat_id"] = chat_id
         return self._request("POST", "/messages", params=params, json=payload)
