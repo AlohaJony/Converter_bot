@@ -6,22 +6,17 @@ from config import CONVERTER_BOT_TOKEN
 from max_client import MaxBotClient
 from converter import ImageConverter
 
-# Настройка логирования
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Проверка наличия токена
 if not CONVERTER_BOT_TOKEN:
     raise ValueError("No CONVERTER_BOT_TOKEN in .env")
 
-# Создаём клиента MAX
 bot = MaxBotClient(CONVERTER_BOT_TOKEN)
 BOT_ID = None
 
-# Состояния пользователей: после получения файла ждём выбора формата
 user_state = {}
 
-# Доступные форматы для разных исходных расширений
 TARGET_FORMATS = {
     'png': ['jpg', 'webp', 'bmp', 'tiff'],
     'jpg': ['png', 'webp', 'bmp', 'tiff'],
@@ -39,8 +34,6 @@ def handle_update(update):
     global BOT_ID
     update_type = update.get('update_type')
     logger.info(f"Update type: {update_type}")
-    # Логируем полную структуру для отладки (можно убрать позже)
-    logger.debug(f"Full update: {update}")
 
     if update_type == 'message_created':
         msg = update.get('message')
@@ -48,7 +41,6 @@ def handle_update(update):
             logger.error("No 'message' field in update")
             return
 
-        # Игнорируем свои сообщения
         if msg.get('sender', {}).get('is_bot') and msg['sender'].get('user_id') == BOT_ID:
             return
 
@@ -57,14 +49,13 @@ def handle_update(update):
             logger.error("No chat_id in message")
             return
 
-        # Проверяем наличие вложений
         attachments = msg.get('body', {}).get('attachments', [])
         if attachments:
             att = attachments[0]
             if att['type'] in ['file', 'image', 'video', 'audio']:
                 file_token = att['payload'].get('token')
                 if file_token:
-                    # ВРЕМЕННО: создаём тестовое изображение
+                    # ВРЕМЕННО: тестовое изображение
                     temp_img = tempfile.NamedTemporaryFile(suffix='.png', delete=False)
                     temp_img.close()
                     from PIL import Image
@@ -80,7 +71,6 @@ def handle_update(update):
                         bot.send_message(chat_id, "Для этого типа файла нет доступных форматов конвертации.")
                         return
 
-                    # Строим клавиатуру
                     buttons = []
                     row = []
                     for fmt in formats:
@@ -102,7 +92,6 @@ def handle_update(update):
             else:
                 bot.send_message(chat_id, "Пожалуйста, отправьте файл для конвертации.")
         else:
-            # Текстовые команды
             text = msg.get('body', {}).get('text', '').strip()
             if text == '/start':
                 welcome = (
@@ -119,15 +108,22 @@ def handle_update(update):
             logger.error("No 'callback' field in update")
             return
 
-        # Проверяем наличие message в callback
-        callback_msg = callback.get('message')
-        if not callback_msg:
-            logger.error(f"No 'message' in callback: {callback}")
-            return
+        # Логируем полный callback, чтобы понять его структуру
+        logger.info(f"Callback data: {callback}")
 
-        chat_id = callback_msg.get('recipient', {}).get('chat_id')
+        # Пытаемся извлечь chat_id (может быть в разных местах)
+        chat_id = None
+        if 'message' in callback:
+            # Если есть вложенное сообщение
+            chat_id = callback['message'].get('recipient', {}).get('chat_id')
         if not chat_id:
-            logger.error("No chat_id in callback message")
+            # Иногда chat_id идёт прямо в callback
+            chat_id = callback.get('chat_id')
+        if not chat_id:
+            # Или в информации о пользователе
+            chat_id = callback.get('user', {}).get('chat_id')
+        if not chat_id:
+            logger.error("Cannot determine chat_id from callback")
             return
 
         payload = callback.get('payload')
@@ -192,7 +188,10 @@ def main():
             if new_marker is not None:
                 marker = new_marker
             for upd in updates:
-                handle_update(upd)
+                try:
+                    handle_update(upd)
+                except Exception as e:
+                    logger.error(f"Error handling update: {e}", exc_info=True)
         except Exception as e:
             logger.error(f"Polling error: {e}")
             time.sleep(5)
