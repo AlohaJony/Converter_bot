@@ -54,10 +54,13 @@ def handle_update(update):
             logger.error("No user_id in sender")
             return
 
+        logger.info(f"Message from user {user_id}")
+
         # Проверяем наличие вложений
         attachments = msg.get('body', {}).get('attachments', [])
         if attachments:
             att = attachments[0]
+            logger.info(f"Attachment type: {att['type']}")
             if att['type'] in ['file', 'image', 'video', 'audio']:
                 file_token = att['payload'].get('token')
                 if file_token:
@@ -72,6 +75,8 @@ def handle_update(update):
 
                     # Сохраняем состояние по user_id
                     user_state[user_id] = {'input_path': input_path}
+                    logger.info(f"State saved for user {user_id}: {input_path}")
+
                     formats = get_target_formats(ext)
 
                     if not formats:
@@ -147,6 +152,7 @@ def handle_update(update):
 
         payload = callback.get('payload')
         logger.info(f"Callback payload: {payload}")
+        logger.info(f"Current state for user {user_id}: {user_state.get(user_id)}")
 
         if payload == 'cancel':
             if user_id in user_state:
@@ -160,6 +166,7 @@ def handle_update(update):
             target_format = payload.replace('convert_to_', '')
             if user_id in user_state:
                 input_path = user_state[user_id]['input_path']
+                logger.info(f"Processing conversion for user {user_id}, file: {input_path}")
                 bot.send_action(user_id, "typing_on")
                 converter = ImageConverter()
                 try:
@@ -191,6 +198,7 @@ def handle_update(update):
                         pass
                     del user_state[user_id]
             else:
+                logger.warning(f"User {user_id} not in state")
                 bot.send_message(
                     user_id=user_id,
                     text="Сессия устарела. Отправьте файл заново."
