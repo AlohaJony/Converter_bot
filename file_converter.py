@@ -19,7 +19,7 @@ class FileConverter:
         """
         ext = os.path.splitext(input_path)[1].lower().lstrip('.')
         # Определяем тип исходного файла по расширению (упрощённо)
-        if ext in ['jpg', 'jpeg', 'png', 'gif', 'bmp', 'webp', 'tiff']:
+        if ext in ['jpg', 'jpeg', 'png', 'gif', 'bmp', 'webp', 'TIFF']:
             return self._convert_image(input_path, target_format)
         elif ext in ['mp3', 'wav', 'ogg', 'flac', 'm4a']:
             return self._convert_audio(input_path, target_format)
