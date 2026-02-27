@@ -7,6 +7,8 @@ import logging
 from config import DATABASE_URL
 
 logger = logging.getLogger(__name__)
+logger.info(f"DATABASE_URL raw value: {repr(DATABASE_URL)}")
+logger = logging.getLogger(__name__)
 
 # Выводим значение DATABASE_URL для отладки (убедимся, что оно загружено)
 logger.info(f"DATABASE_URL raw value: {repr(DATABASE_URL)}")
