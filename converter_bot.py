@@ -180,70 +180,70 @@ def handle_update(update):
             else:
                 bot.send_message(user_id=user_id, text="Отправьте файл для конвертации или /start")
 
-        elif update_type == 'message_callback':
-            callback = update.get('callback')
-            if not callback:
-                logger.error("No 'callback' in update")
+    elif update_type == 'message_callback':
+        callback = update.get('callback')
+        if not callback:
+            logger.error("No 'callback' in update")
+            return
+
+        user_info = callback.get('user')
+        if not user_info:
+            logger.error("No user in callback")
+            return
+        user_id = user_info.get('user_id')
+        if not user_id:
+            logger.error("No user_id in callback")
+            return
+
+        payload = callback.get('payload')
+        logger.info(f"Callback payload: {payload}")
+
+        if payload == 'cancel':
+            if user_id in user_state:
+                del user_state[user_id]
+            bot.send_message(user_id=user_id, text="Операция отменена.")
+        elif payload.startswith('convert_to_'):
+            target_format = payload.replace('convert_to_', '')
+            # Извлекаем состояние и сразу удаляем
+            state = user_state.pop(user_id, None)
+            if not state:
+                bot.send_message(user_id=user_id, text="Сессия устарела. Отправьте файл заново.")
                 return
 
-            user_info = callback.get('user')
-            if not user_info:
-                logger.error("No user in callback")
-                return
-            user_id = user_info.get('user_id')
-            if not user_id:
-                logger.error("No user_id in callback")
+            ext = state.get('ext')
+            mid = state.get('mid')
+            if not ext or not mid:
+                bot.send_message(user_id=user_id, text="Ошибка: не хватает данных для конвертации.")
                 return
 
-            payload = callback.get('payload')
-            logger.info(f"Callback payload: {payload}")
-
-            if payload == 'cancel':
-                if user_id in user_state:
-                    del user_state[user_id]
-                bot.send_message(user_id=user_id, text="Операция отменена.")
-            elif payload.startswith('convert_to_'):
-                target_format = payload.replace('convert_to_', '')
-                # Извлекаем состояние и сразу удаляем
-                state = user_state.pop(user_id, None)
-                if not state:
-                    bot.send_message(user_id=user_id, text="Сессия устарела. Отправьте файл заново.")
-                    return
-
-                ext = state.get('ext')
-                mid = state.get('mid')
-                if not ext or not mid:
-                    bot.send_message(user_id=user_id, text="Ошибка: не хватает данных для конвертации.")
-                    return
-
-                # Проверяем лимиты
-                price = get_price('converter')
-                if check_and_use_free_limit(user_id, 'converter'):
-                    logger.info(f"User {user_id} uses free conversion")
-                    process_conversion(user_id, target_format, ext, mid, free=True)
-                else:
-                    balance = get_balance(user_id)
-                    if balance >= price:
-                        if deduct_tokens(user_id, price, f"Конвертация в {target_format}"):
-                            process_conversion(user_id, target_format, ext, mid, free=False)
-                        else:
-                            bot.send_message(user_id=user_id, text="❌ Ошибка списания токенов.")
-                    else:
-                        keyboard = {
-                            "type": "inline_keyboard",
-                            "payload": {
-                                "buttons": [[
-                                    {"type": "link", "text": "💳 Пополнить баланс", "url": NAVIGATOR_BOT_LINK}
-                                ]]
-                            }
-                        }
-                        bot.send_message(
-                            user_id=user_id,
-                            text=f"❌ Недостаточно токенов. Стоимость: {price} токенов. Ваш баланс: {balance}.",
-                            attachments=[keyboard]
-                        )
+            # Проверяем лимиты
+            price = get_price('converter')
+            if check_and_use_free_limit(user_id, 'converter'):
+                logger.info(f"User {user_id} uses free conversion")
+                process_conversion(user_id, target_format, ext, mid, free=True)
             else:
-                bot.send_message(user_id=user_id, text="Неизвестная команда.")
+                balance = get_balance(user_id)
+                if balance >= price:
+                    if deduct_tokens(user_id, price, f"Конвертация в {target_format}"):
+                        process_conversion(user_id, target_format, ext, mid, free=False)
+                    else:
+                        bot.send_message(user_id=user_id, text="❌ Ошибка списания токенов.")
+                else:
+                    keyboard = {
+                        "type": "inline_keyboard",
+                        "payload": {
+                            "buttons": [[
+                                {"type": "link", "text": "💳 Пополнить баланс", "url": NAVIGATOR_BOT_LINK}
+                            ]]
+                        }
+                    }
+                    bot.send_message(
+                        user_id=user_id,
+                        text=f"❌ Недостаточно токенов. Стоимость: {price} токенов. Ваш баланс: {balance}.",
+                        attachments=[keyboard]
+                    )
+        else:
+            bot.send_message(user_id=user_id, text="Неизвестная команда.")
     else:
         logger.warning(f"Unknown update type: {update_type}")
 
@@ -319,8 +319,6 @@ def process_conversion(user_id, target_format, ext, mid, free=False):
         except:
             pass
         # Состояние уже удалено ранее
-        if user_id in user_state:
-            del user_state[user_id]
 
 def main():
     global BOT_ID
