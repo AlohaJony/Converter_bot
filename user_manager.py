@@ -1,13 +1,17 @@
+import os
 import psycopg2
 from psycopg2 import pool
 from datetime import date
 from contextlib import contextmanager
-from config import DATABASE_URL
 import logging
-logging.basicConfig(level=logging.INFO)
+from config import DATABASE_URL
+
 logger = logging.getLogger(__name__)
+
+# Выводим значение DATABASE_URL для отладки (убедимся, что оно загружено)
 logger.info(f"DATABASE_URL raw value: {repr(DATABASE_URL)}")
 
+# Создаём пул соединений
 connection_pool = psycopg2.pool.SimpleConnectionPool(1, 20, dsn=DATABASE_URL)
 
 @contextmanager

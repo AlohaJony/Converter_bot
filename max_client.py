@@ -32,10 +32,12 @@ class MaxBotClient:
         resp = self._request("POST", path, json={"action": action})
         return resp.get("success", False)
 
+    def get_message(self, message_id: str) -> Dict[str, Any]:
+        """Получить сообщение по его mid."""
+        return self._request("GET", f"/messages/{message_id}")
+
     def upload_file(self, file_path: str, file_type: str) -> Optional[str]:
-        """
-        Загружает файл в MAX и возвращает токен.
-        """
+        """Загружает файл в MAX и возвращает токен."""
         upload_info = self._request("POST", "/uploads", params={"type": file_type})
         upload_url = upload_info["url"]
 
