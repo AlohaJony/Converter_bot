@@ -33,11 +33,31 @@ class MaxBotClient:
         return resp.get("success", False)
 
     def get_message(self, message_id: str) -> Dict[str, Any]:
-        """Получить сообщение по его mid."""
         return self._request("GET", f"/messages/{message_id}")
 
+    def edit_message(
+        self,
+        message_id: str,
+        text: str,
+        user_id: Optional[int] = None,
+        chat_id: Optional[int] = None,
+        attachments: Optional[List[Dict]] = None,
+        format: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Редактирует сообщение (можно убрать клавиатуру)."""
+        if not (user_id or chat_id):
+            raise ValueError("Either user_id or chat_id must be provided")
+        payload = {"text": text, "attachments": attachments or []}
+        if format:
+            payload["format"] = format
+        params = {}
+        if user_id:
+            params["user_id"] = user_id
+        if chat_id:
+            params["chat_id"] = chat_id
+        return self._request("PUT", f"/messages?message_id={message_id}", params=params, json=payload)
+
     def upload_file(self, file_path: str, file_type: str) -> Optional[str]:
-        """Загружает файл в MAX и возвращает токен."""
         upload_info = self._request("POST", "/uploads", params={"type": file_type})
         upload_url = upload_info["url"]
 

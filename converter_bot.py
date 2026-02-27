@@ -24,7 +24,6 @@ BOT_ID = None
 # Состояния: для каждого user_id храним информацию о загруженном файле
 user_state = {}
 
-  # Карта расширений -> список возможных целевых форматов
 TARGET_FORMATS = {
     'png': ['jpg', 'webp', 'bmp', 'tiff'],
     'jpg': ['png', 'webp', 'bmp', 'tiff'],
@@ -69,7 +68,6 @@ def handle_update(update):
         first_name = sender.get('first_name')
         get_or_create_user(user_id, username, first_name)
 
-        # Проверяем наличие вложений
         attachments = msg.get('body', {}).get('attachments', [])
         if attachments:
             att = attachments[0]
@@ -79,22 +77,14 @@ def handle_update(update):
                     bot.send_message(user_id=user_id, text="Не удалось получить токен файла.")
                     return
 
-                                # Извлекаем имя файла, mime-тип и тип вложения
+                # Извлекаем данные
                 file_name = att.get('payload', {}).get('name', '')
                 mime_type = att.get('payload', {}).get('mime_type', '')
-                att_type = att.get('type', '')  # 'file', 'image', 'video', 'audio'
+                att_type = att.get('type', '')
                 logger.info(f"File info - name: {file_name}, mime: {mime_type}, type: {att_type}")
                 logger.info(f"Full payload: {att.get('payload')}")
 
-                user_state[user_id] = {
-                    'file_token': file_token,
-                    'mid': msg.get('body', {}).get('mid'),
-                    'file_name': file_name,
-                    'mime': mime_type,
-                    'att_type': att_type
-                }
-
-                # Определяем расширение файла
+                # Определяем расширение
                 ext = None
                 # 1. Из имени файла
                 if file_name:
@@ -122,29 +112,36 @@ def handle_update(update):
                         'text/plain': 'txt',
                     }
                     ext = mime_to_ext.get(mime_type)
-                # 3. Из URL (если есть поле url)
+                # 3. Из URL
                 if not ext:
                     file_url = att.get('payload', {}).get('url', '')
                     if file_url:
-                        # Пробуем извлечь расширение из URL (после последней точки до ?)
-                        import re
                         match = re.search(r'\.([a-zA-Z0-9]+)(?:\?|$)', file_url)
                         if match:
                             ext = match.group(1).lower()
-                # 4. По типу вложения (если ничего не помогло)
+                # 4. По типу вложения
                 if not ext and att_type:
-                    # Для изображений предположим jpg, для видео mp4, для аудио mp3
                     if att_type == 'image':
                         ext = 'jpg'
                     elif att_type == 'video':
                         ext = 'mp4'
                     elif att_type == 'audio':
                         ext = 'mp3'
-                    # Для 'file' не угадаем, оставим None
                 if not ext:
                     logger.warning(f"Could not determine file extension for user {user_id}")
                     bot.send_message(user_id=user_id, text="Не удалось определить формат файла. Убедитесь, что файл имеет расширение в имени.")
                     return
+
+                # Сохраняем состояние с определённым расширением
+                user_state[user_id] = {
+                    'file_token': file_token,
+                    'mid': msg.get('body', {}).get('mid'),
+                    'file_name': file_name,
+                    'mime': mime_type,
+                    'att_type': att_type,
+                    'ext': ext
+                }
+                logger.info(f"Detected extension: {ext} for user {user_id}")
 
                 formats = get_target_formats(ext)
                 if not formats:
@@ -171,7 +168,6 @@ def handle_update(update):
             else:
                 bot.send_message(user_id=user_id, text="Пожалуйста, отправьте файл для конвертации.")
         else:
-            # Текстовые команды
             text = msg.get('body', {}).get('text', '').strip()
             if text == '/start':
                 balance = get_balance(user_id)
@@ -244,15 +240,29 @@ def handle_update(update):
         logger.warning(f"Unknown update type: {update_type}")
 
 def process_conversion(user_id, target_format, free=False):
-    """Выполняет конвертацию: скачивает файл, конвертирует, отправляет результат."""
     state = user_state.get(user_id)
     if not state:
         bot.send_message(user_id=user_id, text="Ошибка: не найден файл для конвертации.")
         return
 
+    ext = state.get('ext')
+    if not ext:
+        bot.send_message(user_id=user_id, text="Ошибка: не определен формат исходного файла.")
+        return
+
+    # Убираем клавиатуру, чтобы нельзя было нажать повторно
+    try:
+        bot.edit_message(
+            message_id=state['mid'],
+            text="⏳ Обрабатываю ваш файл...",
+            user_id=user_id
+        )
+    except Exception as e:
+        logger.warning(f"Failed to edit message: {e}")
+
     bot.send_action(user_id, "typing_on")
 
-    # 1. Получаем информацию о сообщении, чтобы извлечь URL файла
+    # Скачиваем файл
     try:
         msg_info = bot.get_message(state['mid'])
         attachments = msg_info.get('body', {}).get('attachments', [])
@@ -260,16 +270,15 @@ def process_conversion(user_id, target_format, free=False):
             raise Exception("No attachments in message")
         file_url = attachments[0].get('payload', {}).get('url')
         if not file_url:
-            # Если нет прямого URL, используем тестовое изображение
             logger.warning("No file URL, using test image")
             input_path = tempfile.NamedTemporaryFile(suffix='.png', delete=False).name
             from PIL import Image
             Image.new('RGB', (100,100), color='blue').save(input_path)
         else:
-            # Скачиваем файл по URL
             resp = requests.get(file_url, stream=True, timeout=30)
             resp.raise_for_status()
-            input_path = tempfile.NamedTemporaryFile(delete=False).name
+            suffix = f".{ext}"
+            input_path = tempfile.NamedTemporaryFile(suffix=suffix, delete=False).name
             with open(input_path, 'wb') as f:
                 for chunk in resp.iter_content(chunk_size=8192):
                     f.write(chunk)
@@ -278,17 +287,17 @@ def process_conversion(user_id, target_format, free=False):
         bot.send_message(user_id=user_id, text="❌ Не удалось скачать файл для конвертации.")
         return
 
-    # 2. Конвертируем
+    # Конвертируем
     converter = FileConverter()
     try:
         output_path = converter.convert(input_path, target_format)
         # Определяем тип для загрузки
-        ext = target_format.lower()
-        if ext in ['jpg','jpeg','png','gif','bmp','webp','tiff']:
+        tgt_ext = target_format.lower()
+        if tgt_ext in ['jpg','jpeg','png','gif','bmp','webp','tiff']:
             file_type = 'image'
-        elif ext in ['mp3','wav','ogg','flac','m4a']:
+        elif tgt_ext in ['mp3','wav','ogg','flac','m4a']:
             file_type = 'audio'
-        elif ext in ['mp4','avi','mkv','mov','webm']:
+        elif tgt_ext in ['mp4','avi','mkv','mov','webm']:
             file_type = 'video'
         else:
             file_type = 'file'
