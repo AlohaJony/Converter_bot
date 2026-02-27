@@ -70,36 +70,80 @@ def handle_update(update):
         get_or_create_user(user_id, username, first_name)
 
         # Проверяем наличие вложений
-        attachments = msg.get('body', {}).get('attachments', [])
-        if attachments:
-            att = attachments[0]
-            if att['type'] in ['file', 'image', 'video', 'audio']:
-                file_token = att['payload'].get('token')
-                if not file_token:
-                    bot.send_message(user_id=user_id, text="Не удалось получить токен файла.")
-                    return
+                        if att['type'] in ['file', 'image', 'video', 'audio']:
+                            file_token = att['payload'].get('token')
+                            if not file_token:
+                                bot.send_message(user_id=user_id, text="Не удалось получить токен файла.")
+                                return
 
-                # Сохраняем информацию о файле в состоянии (позже будем скачивать)
-                user_state[user_id] = {
-                    'file_token': file_token,
-                    'mid': msg.get('body', {}).get('mid'),  # ID сообщения
-                    'file_name': att.get('payload', {}).get('name', 'file'),
-                    'mime': att.get('payload', {}).get('mime_type', '')
-                }
+                            # Извлекаем имя файла и mime-тип
+                            file_name = att.get('payload', {}).get('name', '')
+                            mime_type = att.get('payload', {}).get('mime_type', '')
+                            logger.info(f"File info - name: {file_name}, mime: {mime_type}")
+                            logger.info(f"Full payload: {att.get('payload')}")
 
-                # Определяем расширение файла (из имени или mime)
-                ext = None
-                if user_state[user_id]['file_name']:
-                    ext = os.path.splitext(user_state[user_id]['file_name'])[1].lower().lstrip('.')
-                if not ext and user_state[user_id]['mime']:
-                    # можно добавить маппинг mime -> ext
-                    pass
+                            user_state[user_id] = {
+                                'file_token': file_token,
+                                'mid': msg.get('body', {}).get('mid'),
+                                'file_name': file_name,
+                                'mime': mime_type
+                            }
 
-                if not ext:
-                    bot.send_message(user_id=user_id, text="Не удалось определить формат файла.")
-                    return
+                            # Определяем расширение файла
+                            ext = None
+                            if file_name:
+                                # Берём расширение после последней точки
+                                ext = os.path.splitext(file_name)[1].lower().lstrip('.')
+                            if not ext and mime_type:
+                                # Сопоставляем mime-тип с расширением
+                                mime_to_ext = {
+                                    'image/jpeg': 'jpg',
+                                    'image/png': 'png',
+                                    'image/gif': 'gif',
+                                    'image/webp': 'webp',
+                                    'image/bmp': 'bmp',
+                                    'image/tiff': 'tiff',
+                                    'audio/mpeg': 'mp3',
+                                    'audio/wav': 'wav',
+                                    'audio/ogg': 'ogg',
+                                    'audio/flac': 'flac',
+                                    'video/mp4': 'mp4',
+                                    'video/x-msvideo': 'avi',
+                                    'video/webm': 'webm',
+                                    'video/quicktime': 'mov',
+                                    'application/pdf': 'pdf',
+                                    'application/msword': 'doc',
+                                    'application/vnd.openxmlformats-officedocument.wordprocessingml.document': 'docx',
+                                    'text/plain': 'txt',
+                                }
+                                ext = mime_to_ext.get(mime_type)
+                            if not ext:
+                                logger.warning(f"Could not determine file extension for user {user_id}")
+                                bot.send_message(user_id=user_id, text="Не удалось определить формат файла. Убедитесь, что файл имеет расширение в имени.")
+                                return
 
-                formats = get_target_formats(ext)
+                            formats = get_target_formats(ext)
+                            if not formats:
+                                bot.send_message(user_id=user_id, text="Для этого типа файла пока нет доступных форматов конвертации.")
+                            return
+
+                    # Строим клавиатуру
+                    buttons = []
+                    row = []
+                    for fmt in formats:
+                        row.append({"type": "callback", "text": fmt.upper(), "payload": f"convert_to_{fmt}"})
+                        if len(row) == 3:
+                            buttons.append(row)
+                            row = []
+                    if row:
+                        buttons.append(row)
+                    buttons.append([{"type": "callback", "text": "❌ Отмена", "payload": "cancel"}])
+
+                    keyboard = {
+                        "type": "inline_keyboard",
+                        "payload": {"buttons": buttons}
+                    }
+                    bot.send_message(user_id=user_id, text="Выберите целевой формат:", attachments=[keyboard])
                 if not formats:
                     bot.send_message(user_id=user_id, text="Для этого типа файла пока нет доступных форматов конвертации.")
                     return
