@@ -21,15 +21,14 @@ bot = MaxBotClient(CONVERTER_BOT_TOKEN)
 BOT_ID = None
 
 # Состояния: для каждого user_id храним информацию о загруженном файле
-# user_state[user_id] = {'file_token': token, 'mid': message_id, 'file_name': имя, 'mime': тип}
 user_state = {}
 
-# Карта расширений -> список возможных целевых форматов (можно расширять)
+# Карта расширений -> список возможных целевых форматов
 TARGET_FORMATS = {
     'png': ['jpg', 'webp', 'bmp', 'tiff'],
     'jpg': ['png', 'webp', 'bmp', 'tiff'],
     'jpeg': ['png', 'webp', 'bmp', 'tiff'],
-    'gif': ['mp4', 'webm'],  # для анимации
+    'gif': ['mp4', 'webm'],
     'bmp': ['jpg', 'png', 'webp'],
     'webp': ['jpg', 'png'],
     'tiff': ['jpg', 'png'],
@@ -39,7 +38,7 @@ TARGET_FORMATS = {
     'avi': ['mp4', 'mkv'],
     'doc': ['pdf', 'docx', 'odt', 'txt'],
     'docx': ['pdf', 'doc', 'odt', 'txt'],
-    'pdf': ['docx', 'jpg', 'png'],  # сложно, пока заглушка
+    'pdf': ['docx', 'jpg', 'png'],
 }
 
 def get_target_formats(ext):
@@ -70,80 +69,62 @@ def handle_update(update):
         get_or_create_user(user_id, username, first_name)
 
         # Проверяем наличие вложений
-                        if att['type'] in ['file', 'image', 'video', 'audio']:
-                            file_token = att['payload'].get('token')
-                            if not file_token:
-                                bot.send_message(user_id=user_id, text="Не удалось получить токен файла.")
-                                return
+        attachments = msg.get('body', {}).get('attachments', [])
+        if attachments:
+            att = attachments[0]
+            if att['type'] in ['file', 'image', 'video', 'audio']:
+                file_token = att['payload'].get('token')
+                if not file_token:
+                    bot.send_message(user_id=user_id, text="Не удалось получить токен файла.")
+                    return
 
-                            # Извлекаем имя файла и mime-тип
-                            file_name = att.get('payload', {}).get('name', '')
-                            mime_type = att.get('payload', {}).get('mime_type', '')
-                            logger.info(f"File info - name: {file_name}, mime: {mime_type}")
-                            logger.info(f"Full payload: {att.get('payload')}")
+                # Извлекаем имя файла и mime-тип
+                file_name = att.get('payload', {}).get('name', '')
+                mime_type = att.get('payload', {}).get('mime_type', '')
+                logger.info(f"File info - name: {file_name}, mime: {mime_type}")
+                logger.info(f"Full payload: {att.get('payload')}")
 
-                            user_state[user_id] = {
-                                'file_token': file_token,
-                                'mid': msg.get('body', {}).get('mid'),
-                                'file_name': file_name,
-                                'mime': mime_type
-                            }
+                user_state[user_id] = {
+                    'file_token': file_token,
+                    'mid': msg.get('body', {}).get('mid'),
+                    'file_name': file_name,
+                    'mime': mime_type
+                }
 
-                            # Определяем расширение файла
-                            ext = None
-                            if file_name:
-                                # Берём расширение после последней точки
-                                ext = os.path.splitext(file_name)[1].lower().lstrip('.')
-                            if not ext and mime_type:
-                                # Сопоставляем mime-тип с расширением
-                                mime_to_ext = {
-                                    'image/jpeg': 'jpg',
-                                    'image/png': 'png',
-                                    'image/gif': 'gif',
-                                    'image/webp': 'webp',
-                                    'image/bmp': 'bmp',
-                                    'image/tiff': 'tiff',
-                                    'audio/mpeg': 'mp3',
-                                    'audio/wav': 'wav',
-                                    'audio/ogg': 'ogg',
-                                    'audio/flac': 'flac',
-                                    'video/mp4': 'mp4',
-                                    'video/x-msvideo': 'avi',
-                                    'video/webm': 'webm',
-                                    'video/quicktime': 'mov',
-                                    'application/pdf': 'pdf',
-                                    'application/msword': 'doc',
-                                    'application/vnd.openxmlformats-officedocument.wordprocessingml.document': 'docx',
-                                    'text/plain': 'txt',
-                                }
-                                ext = mime_to_ext.get(mime_type)
-                            if not ext:
-                                logger.warning(f"Could not determine file extension for user {user_id}")
-                                bot.send_message(user_id=user_id, text="Не удалось определить формат файла. Убедитесь, что файл имеет расширение в имени.")
-                                return
-
-                            formats = get_target_formats(ext)
-                            if not formats:
-                                bot.send_message(user_id=user_id, text="Для этого типа файла пока нет доступных форматов конвертации.")
-                            return
-
-                    # Строим клавиатуру
-                    buttons = []
-                    row = []
-                    for fmt in formats:
-                        row.append({"type": "callback", "text": fmt.upper(), "payload": f"convert_to_{fmt}"})
-                        if len(row) == 3:
-                            buttons.append(row)
-                            row = []
-                    if row:
-                        buttons.append(row)
-                    buttons.append([{"type": "callback", "text": "❌ Отмена", "payload": "cancel"}])
-
-                    keyboard = {
-                        "type": "inline_keyboard",
-                        "payload": {"buttons": buttons}
+                # Определяем расширение файла
+                ext = None
+                if file_name:
+                    # Берём расширение после последней точки
+                    ext = os.path.splitext(file_name)[1].lower().lstrip('.')
+                if not ext and mime_type:
+                    # Сопоставляем mime-тип с расширением
+                    mime_to_ext = {
+                        'image/jpeg': 'jpg',
+                        'image/png': 'png',
+                        'image/gif': 'gif',
+                        'image/webp': 'webp',
+                        'image/bmp': 'bmp',
+                        'image/tiff': 'tiff',
+                        'audio/mpeg': 'mp3',
+                        'audio/wav': 'wav',
+                        'audio/ogg': 'ogg',
+                        'audio/flac': 'flac',
+                        'video/mp4': 'mp4',
+                        'video/x-msvideo': 'avi',
+                        'video/webm': 'webm',
+                        'video/quicktime': 'mov',
+                        'application/pdf': 'pdf',
+                        'application/msword': 'doc',
+                        'application/vnd.openxmlformats-officedocument.wordprocessingml.document': 'docx',
+                        'text/plain': 'txt',
                     }
-                    bot.send_message(user_id=user_id, text="Выберите целевой формат:", attachments=[keyboard])
+                    ext = mime_to_ext.get(mime_type)
+                if not ext:
+                    logger.warning(f"Could not determine file extension for user {user_id}")
+                    bot.send_message(user_id=user_id, text="Не удалось определить формат файла. Убедитесь, что файл имеет расширение в имени.")
+                    return
+
+                formats = get_target_formats(ext)
                 if not formats:
                     bot.send_message(user_id=user_id, text="Для этого типа файла пока нет доступных форматов конвертации.")
                     return
@@ -210,9 +191,8 @@ def handle_update(update):
                 return
 
             # Проверяем лимиты
-            price = get_price('converter')  # из таблицы prices
+            price = get_price('converter')
             if check_and_use_free_limit(user_id, 'converter'):
-                # Бесплатное использование
                 logger.info(f"User {user_id} uses free conversion")
                 process_conversion(user_id, target_format, free=True)
             else:
@@ -223,7 +203,6 @@ def handle_update(update):
                     else:
                         bot.send_message(user_id=user_id, text="❌ Ошибка списания токенов.")
                 else:
-                    # Предложить пополнить
                     keyboard = {
                         "type": "inline_keyboard",
                         "payload": {
@@ -239,6 +218,8 @@ def handle_update(update):
                     )
         else:
             bot.send_message(user_id=user_id, text="Неизвестная команда.")
+    else:
+        logger.warning(f"Unknown update type: {update_type}")
 
 def process_conversion(user_id, target_format, free=False):
     """Выполняет конвертацию: скачивает файл, конвертирует, отправляет результат."""
@@ -257,8 +238,7 @@ def process_conversion(user_id, target_format, free=False):
             raise Exception("No attachments in message")
         file_url = attachments[0].get('payload', {}).get('url')
         if not file_url:
-            # Если нет прямого URL, возможно, нужно использовать другой метод
-            # Пока заглушка: создадим тестовое изображение
+            # Если нет прямого URL, используем тестовое изображение
             logger.warning("No file URL, using test image")
             input_path = tempfile.NamedTemporaryFile(suffix='.png', delete=False).name
             from PIL import Image
@@ -267,7 +247,6 @@ def process_conversion(user_id, target_format, free=False):
             # Скачиваем файл по URL
             resp = requests.get(file_url, stream=True, timeout=30)
             resp.raise_for_status()
-            # Сохраняем во временный файл с правильным расширением (пока .tmp)
             input_path = tempfile.NamedTemporaryFile(delete=False).name
             with open(input_path, 'wb') as f:
                 for chunk in resp.iter_content(chunk_size=8192):
@@ -306,12 +285,10 @@ def process_conversion(user_id, target_format, free=False):
         bot.send_message(user_id=user_id, text=f"❌ Ошибка при конвертации: {str(e)}")
     finally:
         converter.cleanup()
-        # Удаляем временные файлы
         try:
             os.remove(input_path)
         except:
             pass
-        # Удаляем состояние пользователя
         if user_id in user_state:
             del user_state[user_id]
 
