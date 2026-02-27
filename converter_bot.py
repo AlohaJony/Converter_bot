@@ -3,6 +3,7 @@ import time
 import os
 import tempfile
 import requests
+import re
 from config import CONVERTER_BOT_TOKEN, NAVIGATOR_BOT_LINK
 from max_client import MaxBotClient
 from user_manager import (
@@ -78,26 +79,28 @@ def handle_update(update):
                     bot.send_message(user_id=user_id, text="Не удалось получить токен файла.")
                     return
 
-                # Извлекаем имя файла и mime-тип
+                                # Извлекаем имя файла, mime-тип и тип вложения
                 file_name = att.get('payload', {}).get('name', '')
                 mime_type = att.get('payload', {}).get('mime_type', '')
-                logger.info(f"File info - name: {file_name}, mime: {mime_type}")
+                att_type = att.get('type', '')  # 'file', 'image', 'video', 'audio'
+                logger.info(f"File info - name: {file_name}, mime: {mime_type}, type: {att_type}")
                 logger.info(f"Full payload: {att.get('payload')}")
 
                 user_state[user_id] = {
                     'file_token': file_token,
                     'mid': msg.get('body', {}).get('mid'),
                     'file_name': file_name,
-                    'mime': mime_type
+                    'mime': mime_type,
+                    'att_type': att_type
                 }
 
                 # Определяем расширение файла
                 ext = None
+                # 1. Из имени файла
                 if file_name:
-                    # Берём расширение после последней точки
                     ext = os.path.splitext(file_name)[1].lower().lstrip('.')
+                # 2. Из mime-типа
                 if not ext and mime_type:
-                    # Сопоставляем mime-тип с расширением
                     mime_to_ext = {
                         'image/jpeg': 'jpg',
                         'image/png': 'png',
@@ -119,6 +122,25 @@ def handle_update(update):
                         'text/plain': 'txt',
                     }
                     ext = mime_to_ext.get(mime_type)
+                # 3. Из URL (если есть поле url)
+                if not ext:
+                    file_url = att.get('payload', {}).get('url', '')
+                    if file_url:
+                        # Пробуем извлечь расширение из URL (после последней точки до ?)
+                        import re
+                        match = re.search(r'\.([a-zA-Z0-9]+)(?:\?|$)', file_url)
+                        if match:
+                            ext = match.group(1).lower()
+                # 4. По типу вложения (если ничего не помогло)
+                if not ext and att_type:
+                    # Для изображений предположим jpg, для видео mp4, для аудио mp3
+                    if att_type == 'image':
+                        ext = 'jpg'
+                    elif att_type == 'video':
+                        ext = 'mp4'
+                    elif att_type == 'audio':
+                        ext = 'mp3'
+                    # Для 'file' не угадаем, оставим None
                 if not ext:
                     logger.warning(f"Could not determine file extension for user {user_id}")
                     bot.send_message(user_id=user_id, text="Не удалось определить формат файла. Убедитесь, что файл имеет расширение в имени.")
