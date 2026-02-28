@@ -318,7 +318,7 @@ def process_conversion(user_id, target_format, ext, mid, free=False):
             os.remove(input_path)
         except:
             pass
-        # Состояние уже удалено ранее
+         # Состояние уже удалено ранее
 
 def main():
     global BOT_ID
