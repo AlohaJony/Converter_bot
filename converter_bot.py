@@ -25,20 +25,31 @@ BOT_ID = None
 user_state = {}
 
 TARGET_FORMATS = {
+    # Изображения
     'png': ['jpg', 'webp', 'bmp', 'tiff'],
     'jpg': ['png', 'webp', 'bmp', 'tiff'],
     'jpeg': ['png', 'webp', 'bmp', 'tiff'],
-    'gif': ['mp4', 'webm'],
-    'bmp': ['jpg', 'png', 'webp'],
-    'webp': ['jpg', 'png'],
-    'tiff': ['jpg', 'png'],
+    'gif': ['mp4', 'webm'],  # анимация в видео
+    'bmp': ['jpg', 'png', 'webp', 'tiff'],
+    'webp': ['jpg', 'png', 'bmp', 'tiff'],
+    'tiff': ['jpg', 'png', 'webp', 'bmp'],
+    # Аудио
     'mp3': ['wav', 'ogg', 'flac'],
-    'wav': ['mp3', 'ogg'],
+    'wav': ['mp3', 'ogg', 'flac'],
+    'ogg': ['mp3', 'wav', 'flac'],
+    'flac': ['mp3', 'wav', 'ogg'],
+    # Видео
     'mp4': ['avi', 'mkv', 'mov', 'webm'],
-    'avi': ['mp4', 'mkv'],
+    'avi': ['mp4', 'mkv', 'mov', 'webm'],
+    'mkv': ['mp4', 'avi', 'mov', 'webm'],
+    'mov': ['mp4', 'avi', 'mkv', 'webm'],
+    'webm': ['mp4', 'avi', 'mkv', 'mov'],
+    # Документы
     'doc': ['pdf', 'docx', 'odt', 'txt'],
     'docx': ['pdf', 'doc', 'odt', 'txt'],
-    'pdf': ['docx', 'jpg', 'png'],
+    'odt': ['pdf', 'doc', 'docx', 'txt'],
+    'pdf': ['docx', 'jpg', 'png'],  # сложно, но можно через ghostscript
+    'txt': ['pdf', 'doc', 'docx'],
 }
 
 def get_target_formats(ext):
