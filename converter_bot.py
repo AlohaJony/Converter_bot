@@ -21,35 +21,41 @@ if not CONVERTER_BOT_TOKEN:
 bot = MaxBotClient(CONVERTER_BOT_TOKEN)
 BOT_ID = None
 
-# Состояния: для каждого user_id храним информацию о загруженном файле
 user_state = {}
 
+# Расширенная таблица поддерживаемых форматов
 TARGET_FORMATS = {
     # Изображения
     'png': ['jpg', 'webp', 'bmp', 'tiff'],
     'jpg': ['png', 'webp', 'bmp', 'tiff'],
     'jpeg': ['png', 'webp', 'bmp', 'tiff'],
-    'gif': ['mp4', 'webm'],  # анимация в видео
+    'gif': ['mp4', 'webm'],
     'bmp': ['jpg', 'png', 'webp', 'tiff'],
     'webp': ['jpg', 'png', 'bmp', 'tiff'],
     'tiff': ['jpg', 'png', 'webp', 'bmp'],
     # Аудио
-    'mp3': ['wav', 'ogg', 'flac'],
-    'wav': ['mp3', 'ogg', 'flac'],
-    'ogg': ['mp3', 'wav', 'flac'],
-    'flac': ['mp3', 'wav', 'ogg'],
+    'mp3': ['wav', 'ogg', 'flac', 'aac', 'm4a'],
+    'wav': ['mp3', 'ogg', 'flac', 'aac', 'm4a'],
+    'ogg': ['mp3', 'wav', 'flac', 'aac', 'm4a'],
+    'flac': ['mp3', 'wav', 'ogg', 'aac', 'm4a'],
+    'aac': ['mp3', 'wav', 'ogg', 'flac', 'm4a'],
+    'm4a': ['mp3', 'wav', 'ogg', 'flac', 'aac'],
     # Видео
-    'mp4': ['avi', 'mkv', 'mov', 'webm'],
-    'avi': ['mp4', 'mkv', 'mov', 'webm'],
-    'mkv': ['mp4', 'avi', 'mov', 'webm'],
-    'mov': ['mp4', 'avi', 'mkv', 'webm'],
-    'webm': ['mp4', 'avi', 'mkv', 'mov'],
+    'mp4': ['avi', 'mkv', 'mov', 'webm', 'gif'],
+    'avi': ['mp4', 'mkv', 'mov', 'webm', 'gif'],
+    'mkv': ['mp4', 'avi', 'mov', 'webm', 'gif'],
+    'mov': ['mp4', 'avi', 'mkv', 'webm', 'gif'],
+    'webm': ['mp4', 'avi', 'mkv', 'mov', 'gif'],
     # Документы
-    'doc': ['pdf', 'docx', 'odt', 'txt'],
-    'docx': ['pdf', 'doc', 'odt', 'txt'],
-    'odt': ['pdf', 'doc', 'docx', 'txt'],
-    'pdf': ['docx', 'jpg', 'png'],  # сложно, но можно через ghostscript
-    'txt': ['pdf', 'doc', 'docx'],
+    'doc': ['pdf', 'docx', 'odt', 'txt', 'rtf'],
+    'docx': ['pdf', 'doc', 'odt', 'txt', 'rtf'],
+    'odt': ['pdf', 'doc', 'docx', 'txt', 'rtf'],
+    'pdf': ['docx', 'jpg', 'png', 'txt'],
+    'txt': ['pdf', 'doc', 'docx', 'rtf'],
+    'rtf': ['pdf', 'doc', 'docx', 'txt'],
+    # Другие
+    'zip': ['7z', 'tar', 'gz'],
+    'rar': ['zip', '7z'],
 }
 
 def get_target_formats(ext):
@@ -82,7 +88,10 @@ def handle_update(update):
         attachments = msg.get('body', {}).get('attachments', [])
         if attachments:
             att = attachments[0]
-            if att['type'] in ['file', 'image', 'video', 'audio']:
+            att_type = att.get('type', '')
+            logger.info(f"Attachment type: {att_type}, full payload: {att.get('payload')}")
+
+            if att_type in ['file', 'image', 'video', 'audio']:
                 file_token = att['payload'].get('token')
                 if not file_token:
                     bot.send_message(user_id=user_id, text="Не удалось получить токен файла.")
@@ -91,9 +100,17 @@ def handle_update(update):
                 # Извлекаем данные
                 file_name = att.get('payload', {}).get('name', '')
                 mime_type = att.get('payload', {}).get('mime_type', '')
-                att_type = att.get('type', '')
                 logger.info(f"File info - name: {file_name}, mime: {mime_type}, type: {att_type}")
-                logger.info(f"Full payload: {att.get('payload')}")
+
+                # Сохраняем состояние
+                user_state[user_id] = {
+                    'file_token': file_token,
+                    'mid': msg.get('body', {}).get('mid'),
+                    'file_name': file_name,
+                    'mime': mime_type,
+                    'att_type': att_type,
+                    'payload': att.get('payload')
+                }
 
                 # Определяем расширение
                 ext = None
@@ -113,14 +130,21 @@ def handle_update(update):
                         'audio/wav': 'wav',
                         'audio/ogg': 'ogg',
                         'audio/flac': 'flac',
+                        'audio/aac': 'aac',
+                        'audio/mp4': 'm4a',
                         'video/mp4': 'mp4',
                         'video/x-msvideo': 'avi',
+                        'video/x-matroska': 'mkv',
                         'video/webm': 'webm',
                         'video/quicktime': 'mov',
                         'application/pdf': 'pdf',
                         'application/msword': 'doc',
                         'application/vnd.openxmlformats-officedocument.wordprocessingml.document': 'docx',
+                        'application/vnd.oasis.opendocument.text': 'odt',
                         'text/plain': 'txt',
+                        'application/rtf': 'rtf',
+                        'application/zip': 'zip',
+                        'application/x-rar-compressed': 'rar',
                     }
                     ext = mime_to_ext.get(mime_type)
                 # 3. Из URL
@@ -130,8 +154,8 @@ def handle_update(update):
                         match = re.search(r'\.([a-zA-Z0-9]+)(?:\?|$)', file_url)
                         if match:
                             ext = match.group(1).lower()
-                # 4. HEAD-запрос к URL
-                if not ext and file_url:
+                # 4. HEAD-запрос к URL (только для изображений, чтобы не грузить большие файлы)
+                if not ext and att_type == 'image' and file_url:
                     try:
                         head_resp = requests.head(file_url, timeout=5, allow_redirects=True)
                         content_type = head_resp.headers.get('content-type', '').split(';')[0].strip()
@@ -148,7 +172,7 @@ def handle_update(update):
                             logger.info(f"HEAD content-type: {content_type} -> ext {ext}")
                     except Exception as e:
                         logger.warning(f"HEAD request failed: {e}")
-                # 5. По типу вложения
+                # 5. По типу вложения (последняя надежда)
                 if not ext and att_type:
                     if att_type == 'image':
                         ext = 'jpg'
@@ -161,15 +185,8 @@ def handle_update(update):
                     bot.send_message(user_id=user_id, text="Не удалось определить формат файла. Убедитесь, что файл имеет расширение в имени.")
                     return
 
-                # Сохраняем состояние с определённым расширением
-                user_state[user_id] = {
-                    'file_token': file_token,
-                    'mid': msg.get('body', {}).get('mid'),
-                    'file_name': file_name,
-                    'mime': mime_type,
-                    'att_type': att_type,
-                    'ext': ext
-                }
+                # Сохраняем расширение в состояние
+                user_state[user_id]['ext'] = ext
                 logger.info(f"Detected extension: {ext} for user {user_id}")
 
                 formats = get_target_formats(ext)
@@ -233,7 +250,6 @@ def handle_update(update):
             bot.send_message(user_id=user_id, text="Операция отменена.")
         elif payload.startswith('convert_to_'):
             target_format = payload.replace('convert_to_', '')
-            # Извлекаем состояние и сразу удаляем
             state = user_state.pop(user_id, None)
             if not state:
                 bot.send_message(user_id=user_id, text="Сессия устарела. Отправьте файл заново.")
@@ -241,6 +257,7 @@ def handle_update(update):
 
             ext = state.get('ext')
             mid = state.get('mid')
+            att_type = state.get('att_type')
             if not ext or not mid:
                 bot.send_message(user_id=user_id, text="Ошибка: не хватает данных для конвертации.")
                 return
@@ -249,12 +266,12 @@ def handle_update(update):
             price = get_price('converter')
             if check_and_use_free_limit(user_id, 'converter'):
                 logger.info(f"User {user_id} uses free conversion")
-                process_conversion(user_id, target_format, ext, mid, free=True)
+                process_conversion(user_id, target_format, ext, mid, att_type, free=True)
             else:
                 balance = get_balance(user_id)
                 if balance >= price:
                     if deduct_tokens(user_id, price, f"Конвертация в {target_format}"):
-                        process_conversion(user_id, target_format, ext, mid, free=False)
+                        process_conversion(user_id, target_format, ext, mid, att_type, free=False)
                     else:
                         bot.send_message(user_id=user_id, text="❌ Ошибка списания токенов.")
                 else:
@@ -276,8 +293,7 @@ def handle_update(update):
     else:
         logger.warning(f"Unknown update type: {update_type}")
 
-def process_conversion(user_id, target_format, ext, mid, free=False):
-    # Убираем клавиатуру, чтобы нельзя было нажать повторно
+def process_conversion(user_id, target_format, ext, mid, att_type, free=False):
     try:
         bot.edit_message(
             message_id=mid,
@@ -290,7 +306,6 @@ def process_conversion(user_id, target_format, ext, mid, free=False):
 
     bot.send_action(user_id, "typing_on")
 
-    # Скачиваем файл
     input_path = None
     try:
         msg_info = bot.get_message(mid)
@@ -299,36 +314,33 @@ def process_conversion(user_id, target_format, ext, mid, free=False):
             raise Exception("No attachments in message")
         file_url = attachments[0].get('payload', {}).get('url')
         if not file_url:
-            logger.warning("No file URL, using test image")
-            input_path = tempfile.NamedTemporaryFile(suffix='.png', delete=False).name
-            from PIL import Image
-            Image.new('RGB', (100,100), color='blue').save(input_path)
-        else:
-            resp = requests.get(file_url, stream=True, timeout=30)
-            resp.raise_for_status()
-            suffix = f".{ext}"
-            input_path = tempfile.NamedTemporaryFile(suffix=suffix, delete=False).name
-            with open(input_path, 'wb') as f:
-                for chunk in resp.iter_content(chunk_size=8192):
-                    f.write(chunk)
+            raise Exception("No file URL in attachment")
+
+        # Скачиваем файл
+        resp = requests.get(file_url, stream=True, timeout=30)
+        resp.raise_for_status()
+        suffix = f".{ext}"
+        input_path = tempfile.NamedTemporaryFile(suffix=suffix, delete=False).name
+        with open(input_path, 'wb') as f:
+            for chunk in resp.iter_content(chunk_size=8192):
+                f.write(chunk)
         logger.info(f"File downloaded to {input_path}")
     except Exception as e:
         logger.error(f"Failed to download file: {e}")
         bot.send_message(user_id=user_id, text="❌ Не удалось скачать файл для конвертации.")
         return
 
-    # Конвертируем
     converter = FileConverter()
     output_path = None
     try:
         output_path = converter.convert(input_path, target_format)
         logger.info(f"Converted to {output_path}")
 
-        # Определяем тип для загрузки (гарантированно определяем)
+        # Определяем тип для загрузки
         tgt_ext = target_format.lower()
         if tgt_ext in ['jpg','jpeg','png','gif','bmp','webp','tiff']:
             file_type = 'image'
-        elif tgt_ext in ['mp3','wav','ogg','flac','m4a']:
+        elif tgt_ext in ['mp3','wav','ogg','flac','aac','m4a']:
             file_type = 'audio'
         elif tgt_ext in ['mp4','avi','mkv','mov','webm']:
             file_type = 'video'
@@ -357,7 +369,6 @@ def process_conversion(user_id, target_format, ext, mid, free=False):
                 os.remove(input_path)
             except Exception as e:
                 logger.warning(f"Failed to remove temp file {input_path}: {e}")
-        # Состояние уже удалено ранее
 
 def main():
     global BOT_ID
