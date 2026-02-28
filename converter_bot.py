@@ -85,7 +85,6 @@ def handle_update(update):
                 logger.info(f"Full payload: {att.get('payload')}")
 
                 # Определяем расширение
-                                # Определяем расширение
                 ext = None
                 # 1. Из имени файла
                 if file_name:
@@ -120,13 +119,12 @@ def handle_update(update):
                         match = re.search(r'\.([a-zA-Z0-9]+)(?:\?|$)', file_url)
                         if match:
                             ext = match.group(1).lower()
-                # 4. HEAD-запрос к URL для определения Content-Type (если есть URL)
+                # 4. HEAD-запрос к URL
                 if not ext and file_url:
                     try:
                         head_resp = requests.head(file_url, timeout=5, allow_redirects=True)
                         content_type = head_resp.headers.get('content-type', '').split(';')[0].strip()
                         if content_type:
-                            # Простейшее сопоставление
                             ct_to_ext = {
                                 'image/jpeg': 'jpg',
                                 'image/png': 'png',
@@ -139,7 +137,7 @@ def handle_update(update):
                             logger.info(f"HEAD content-type: {content_type} -> ext {ext}")
                     except Exception as e:
                         logger.warning(f"HEAD request failed: {e}")
-                # 5. По типу вложения (последняя надежда)
+                # 5. По типу вложения
                 if not ext and att_type:
                     if att_type == 'image':
                         ext = 'jpg'
@@ -275,12 +273,14 @@ def process_conversion(user_id, target_format, ext, mid, free=False):
             text="⏳ Обрабатываю ваш файл...",
             user_id=user_id
         )
+        logger.info(f"Edited message {mid} for user {user_id}")
     except Exception as e:
         logger.warning(f"Failed to edit message: {e}")
 
     bot.send_action(user_id, "typing_on")
 
     # Скачиваем файл
+    input_path = None
     try:
         msg_info = bot.get_message(mid)
         attachments = msg_info.get('body', {}).get('attachments', [])
@@ -300,6 +300,7 @@ def process_conversion(user_id, target_format, ext, mid, free=False):
             with open(input_path, 'wb') as f:
                 for chunk in resp.iter_content(chunk_size=8192):
                     f.write(chunk)
+        logger.info(f"File downloaded to {input_path}")
     except Exception as e:
         logger.error(f"Failed to download file: {e}")
         bot.send_message(user_id=user_id, text="❌ Не удалось скачать файл для конвертации.")
@@ -307,26 +308,22 @@ def process_conversion(user_id, target_format, ext, mid, free=False):
 
     # Конвертируем
     converter = FileConverter()
+    output_path = None
     try:
         output_path = converter.convert(input_path, target_format)
-        # Определяем тип для загрузки
+        logger.info(f"Converted to {output_path}")
+
+        # Определяем тип для загрузки (гарантированно определяем)
         tgt_ext = target_format.lower()
         if tgt_ext in ['jpg','jpeg','png','gif','bmp','webp','tiff']:
-                    # Проверим формат выходного файла
-            if file_type == 'image':
-                try:
-                    from PIL import Image
-                    with Image.open(output_path) as img:
-                        actual = img.format
-                        logger.info(f"Output image actual format: {actual}, expected: {target_format.upper()}")
-                except Exception as e:
-                    logger.warning(f"Could not verify output image: {e}")
+            file_type = 'image'
         elif tgt_ext in ['mp3','wav','ogg','flac','m4a']:
             file_type = 'audio'
         elif tgt_ext in ['mp4','avi','mkv','mov','webm']:
             file_type = 'video'
         else:
             file_type = 'file'
+        logger.info(f"Detected file_type: {file_type}")
 
         token = bot.upload_file(output_path, file_type)
         if token:
@@ -335,18 +332,21 @@ def process_conversion(user_id, target_format, ext, mid, free=False):
             if not free:
                 caption += f"\n(списано {get_price('converter')} токенов)"
             bot.send_message(user_id=user_id, text=caption, attachments=[attachment])
+            logger.info(f"Result sent to user {user_id}")
         else:
             bot.send_message(user_id=user_id, text="❌ Не удалось загрузить результат.")
+            logger.error("Upload returned no token")
     except Exception as e:
-        logger.error(f"Conversion error: {e}")
+        logger.error(f"Conversion error: {e}", exc_info=True)
         bot.send_message(user_id=user_id, text=f"❌ Ошибка при конвертации: {str(e)}")
     finally:
         converter.cleanup()
-        try:
-            os.remove(input_path)
-        except:
-            pass
-         # Состояние уже удалено ранее
+        if input_path and os.path.exists(input_path):
+            try:
+                os.remove(input_path)
+            except Exception as e:
+                logger.warning(f"Failed to remove temp file {input_path}: {e}")
+        # Состояние уже удалено ранее
 
 def main():
     global BOT_ID
