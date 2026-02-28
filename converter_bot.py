@@ -85,6 +85,7 @@ def handle_update(update):
                 logger.info(f"Full payload: {att.get('payload')}")
 
                 # Определяем расширение
+                                # Определяем расширение
                 ext = None
                 # 1. Из имени файла
                 if file_name:
@@ -119,7 +120,26 @@ def handle_update(update):
                         match = re.search(r'\.([a-zA-Z0-9]+)(?:\?|$)', file_url)
                         if match:
                             ext = match.group(1).lower()
-                # 4. По типу вложения
+                # 4. HEAD-запрос к URL для определения Content-Type (если есть URL)
+                if not ext and file_url:
+                    try:
+                        head_resp = requests.head(file_url, timeout=5, allow_redirects=True)
+                        content_type = head_resp.headers.get('content-type', '').split(';')[0].strip()
+                        if content_type:
+                            # Простейшее сопоставление
+                            ct_to_ext = {
+                                'image/jpeg': 'jpg',
+                                'image/png': 'png',
+                                'image/gif': 'gif',
+                                'image/webp': 'webp',
+                                'image/bmp': 'bmp',
+                                'image/tiff': 'tiff',
+                            }
+                            ext = ct_to_ext.get(content_type)
+                            logger.info(f"HEAD content-type: {content_type} -> ext {ext}")
+                    except Exception as e:
+                        logger.warning(f"HEAD request failed: {e}")
+                # 5. По типу вложения (последняя надежда)
                 if not ext and att_type:
                     if att_type == 'image':
                         ext = 'jpg'
@@ -292,7 +312,15 @@ def process_conversion(user_id, target_format, ext, mid, free=False):
         # Определяем тип для загрузки
         tgt_ext = target_format.lower()
         if tgt_ext in ['jpg','jpeg','png','gif','bmp','webp','tiff']:
-            file_type = 'image'
+                    # Проверим формат выходного файла
+            if file_type == 'image':
+                try:
+                    from PIL import Image
+                    with Image.open(output_path) as img:
+                        actual = img.format
+                        logger.info(f"Output image actual format: {actual}, expected: {target_format.upper()}")
+                except Exception as e:
+                    logger.warning(f"Could not verify output image: {e}")
         elif tgt_ext in ['mp3','wav','ogg','flac','m4a']:
             file_type = 'audio'
         elif tgt_ext in ['mp4','avi','mkv','mov','webm']:

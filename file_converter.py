@@ -30,11 +30,17 @@ class FileConverter:
         fmt = target_format.upper()
         if fmt == 'JPG':
             fmt = 'JPEG'
-        # Для TIFF fmt останется 'TIFF' – это правильно
         logger.info(f"Saving as {fmt} to {target_format}")
         base = os.path.splitext(os.path.basename(input_path))[0]
         output_path = os.path.join(self.temp_dir, f"{base}.{target_format.lower()}")
         img.save(output_path, format=fmt)
+        # Проверим, что реально сохранилось
+        try:
+            with Image.open(output_path) as img2:
+                actual = img2.format
+                logger.info(f"Actual saved format: {actual}")
+        except Exception as e:
+            logger.warning(f"Could not verify output: {e}")
         return output_path
 
     def _convert_audio(self, input_path, target_format):
