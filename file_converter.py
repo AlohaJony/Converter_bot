@@ -3,6 +3,7 @@ import tempfile
 import logging
 from PIL import Image
 import subprocess
+import shutil
 
 logger = logging.getLogger(__name__)
 
@@ -59,6 +60,9 @@ class FileConverter:
         return output_path
 
     def _convert_document(self, input_path, target_format):
+        if not shutil.which('libreoffice'):
+            logger.error("libreoffice not found in PATH")
+            raise Exception("libreoffice is not installed")
         base = os.path.splitext(os.path.basename(input_path))[0]
         output_path = os.path.join(self.temp_dir, f"{base}.{target_format.lower()}")
         # Используем libreoffice в headless-режиме
