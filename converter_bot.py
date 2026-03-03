@@ -276,6 +276,12 @@ def handle_update(update):
             logger.error("No 'callback' in update")
             return
 
+    elif update_type == 'message_callback':
+        callback = update.get('callback')
+        if not callback:
+            logger.error("No 'callback' in update")
+            return
+
         callback_id = callback.get('callback_id')
         user_info = callback.get('user')
         if not user_info:
@@ -295,28 +301,6 @@ def handle_update(update):
         except Exception as e:
             logger.warning(f"Failed to answer callback: {e}")
 
-        # Далее идёт основная логика обработки payload...
-
-        payload = callback.get('payload')
-        logger.info(f"Callback payload: {payload}")
-
-
-        # Подтверждаем callback, чтобы он не повторялся
-        try:
-            bot.answer_callback(callback_id)
-        except Exception as e:
-            logger.warning(f"Failed to answer callback: {e}")
-
-        # Далее идёт основная логика обработки payload...
-
-        payload = callback.get('payload')
-        logger.info(f"Callback payload: {payload}")
-
-        # Подтверждаем callback, чтобы он не повторялся
-        try:
-            bot.answer_callback(callback_id)
-        except Exception as e:
-            logger.warning(f"Failed to answer callback: {e}")
 
         # Далее идёт основная логика обработки payload...
 
