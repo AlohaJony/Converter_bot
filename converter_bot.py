@@ -102,6 +102,9 @@ def handle_update(update):
     logger.info(f"Update type: {update_type}")
 
     if update_type == 'message_created':
+        text = msg.get('body', {}).get('text', '').strip()
+        logger.info(f"Received message from user {user_id}: {text}")
+        logger.info(f"Sender info: {sender}")
         msg = update.get('message')
         if not msg:
             logger.error("No 'message' in update")
@@ -109,6 +112,7 @@ def handle_update(update):
 
         sender = msg.get('sender', {})
         if sender.get('is_bot') and sender.get('user_id') == BOT_ID:
+            logger.info("Ignoring own message")
             return
 
         user_id = sender.get('user_id')
