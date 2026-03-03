@@ -284,6 +284,9 @@ def handle_update(update):
 
         callback_id = callback.get('callback_id')
         user_info = callback.get('user')
+        if not callback_id:
+            logger.error("No callback_id in callback")
+            return
         if not user_info:
             logger.error("No user in callback")
             return
@@ -297,7 +300,7 @@ def handle_update(update):
 
         # Подтверждаем callback, чтобы он не повторялся
         try:
-            bot.answer_callback(callback_id)
+            bot.answer_callback(callback_id, text="⏳ Обрабатываю...")
         except Exception as e:
             logger.warning(f"Failed to answer callback: {e}")
 

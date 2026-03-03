@@ -14,6 +14,7 @@ class MaxBotClient:
 
     def _request(self, method: str, path: str, **kwargs) -> Dict[str, Any]:
         url = f"{self.base_url}{path}"
+        logger.info(f"Request: {method} {url} {kwargs.get('params')} {kwargs.get('json')}")
         resp = self.session.request(method, url, **kwargs)
         try:
             resp.raise_for_status()
@@ -26,11 +27,12 @@ class MaxBotClient:
         """
         Отвечает на callback. Если передан text, пользователь увидит всплывающее уведомление.
         """
+        params = {'callback_id': callback_id}
         payload = {}
         if text:
             payload['notification'] = text
         # Важно: даже без текста нужно передать пустой объект
-        return self._request("POST", "/answers", params={'callback_id': callback_id}, json=payload)
+        return self._request("POST", "/answers", params=params, json=payload)
 
     def get_me(self) -> Dict[str, Any]:
         return self._request("GET", "/me")
