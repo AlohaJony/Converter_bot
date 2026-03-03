@@ -12,6 +12,16 @@ class MaxBotClient:
         self.session = requests.Session()
         self.session.headers.update({"Authorization": token})
 
+    def answer_callback(self, callback_id: str, text: Optional[str] = None) -> Dict[str, Any]:
+        """
+        Отвечает на callback, чтобы платформа знала, что он обработан.
+        Если указан text, пользователь увидит одноразовое уведомление.
+        """
+        payload = {}
+        if text:
+            payload['notification'] = text
+        return self._request("POST", "/answers", params={'callback_id': callback_id}, json=payload)
+
     def _request(self, method: str, path: str, **kwargs) -> Dict[str, Any]:
         url = f"{self.base_url}{path}"
         resp = self.session.request(method, url, **kwargs)
