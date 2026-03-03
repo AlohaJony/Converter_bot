@@ -24,15 +24,10 @@ class MaxBotClient:
         return resp.json()
 
     def answer_callback(self, callback_id: str, text: Optional[str] = None) -> Dict[str, Any]:
-        """
-        Отвечает на callback. Если передан text, пользователь увидит всплывающее уведомление.
-        """
-        params = {'callback_id': callback_id}
         payload = {}
         if text:
             payload['notification'] = text
-        # Важно: даже без текста нужно передать пустой объект
-        return self._request("POST", "/answers", params=params, json=payload)
+        return self._request("POST", "/answers", params={'callback_id': callback_id}, json=payload)
 
     def get_me(self) -> Dict[str, Any]:
         return self._request("GET", "/me")
