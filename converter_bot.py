@@ -466,7 +466,7 @@ def process_conversion(user_id, target_format, ext, input_path, mid, free=False)
 
         tgt_ext = target_format.lower()
         if tgt_ext in ['jpg','jpeg','png','gif','bmp','webp','tiff']:
-            file_type = 'image'
+            file_type = 'file'
         elif tgt_ext in ['mp3','wav','ogg','flac','aac','m4a']:
             file_type = 'audio'
         elif tgt_ext in ['mp4','avi','mkv','mov','webm']:
