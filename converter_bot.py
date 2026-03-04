@@ -446,14 +446,29 @@ def handle_update(update):
         logger.warning(f"Unknown update type: {update_type}")
 
 def process_conversion(user_id, target_format, ext, input_path, mid, free=False):
-    # ... (начало функции без изменений)
+    # Убираем клавиатуру
     try:
+        bot.edit_message(
+            message_id=mid,
+            text="⏳ Обрабатываю ваш файл...",
+            user_id=user_id
+        )
+        logger.info(f"Edited message {mid} for user {user_id}")
+    except Exception as e:
+        logger.warning(f"Failed to edit message: {e}")
+
+    bot.send_action(user_id, "typing_on")
+
+    converter = None
+    output_path = None
+    try:
+        converter = FileConverter()
         output_path = converter.convert(input_path, target_format)
         logger.info(f"Converted to {output_path}")
 
         tgt_ext = target_format.lower()
         if tgt_ext in ['jpg','jpeg','png','gif','bmp','webp','tiff']:
-            file_type = 'file'  # или 'image', как вам удобнее
+            file_type = 'file'  # или 'image', если нужен предпросмотр
         elif tgt_ext in ['mp3','wav','ogg','flac','aac','m4a']:
             file_type = 'audio'
         elif tgt_ext in ['mp4','avi','mkv','mov','webm']:
@@ -464,8 +479,7 @@ def process_conversion(user_id, target_format, ext, input_path, mid, free=False)
 
         token = bot.upload_file(output_path, file_type)
         if token:
-            # Ждём, пока файл обработается на сервере MAX
-            time.sleep(1.5)
+            time.sleep(1.5)  # ждём готовности файла на сервере MAX
             attachment = bot.build_attachment(file_type, token)
             caption = f"✅ Конвертация в {target_format.upper()} выполнена!"
             if not free:
@@ -477,10 +491,10 @@ def process_conversion(user_id, target_format, ext, input_path, mid, free=False)
             logger.error("Upload returned no token")
     except Exception as e:
         logger.error(f"Conversion error: {e}", exc_info=True)
-        # Отправляем короткое сообщение пользователю
         bot.send_message(user_id=user_id, text="❌ Произошла ошибка при конвертации. Попробуйте позже.")
     finally:
-        converter.cleanup()
+        if converter:
+            converter.cleanup()
         if output_path and os.path.exists(output_path):
             try:
                 os.remove(output_path)
