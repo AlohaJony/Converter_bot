@@ -2,3 +2,15 @@ requests
 psycopg2-binary
 python-dotenv
 Pillow
+pysubs2
+python-docx
+openpyxl
+pandas
+pdf2docx
+PyPDF2
+pdfplumber
+moviepy
+pydub
+python-pptx
+ebooklib
+pandoc
