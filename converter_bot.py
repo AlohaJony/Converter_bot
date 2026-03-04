@@ -28,32 +28,75 @@ file_cache = {}
 CACHE_TTL = 600  # 10 минут
 
 TARGET_FORMATS = {
-    'png': ['jpg', 'webp', 'bmp', 'tiff'],
-    'jpg': ['png', 'webp', 'bmp', 'tiff'],
-    'jpeg': ['png', 'webp', 'bmp', 'tiff'],
-    'gif': ['mp4', 'webm'],
+    # Изображения
+    'png': ['jpg', 'webp', 'bmp', 'tiff', 'gif', 'ico'],
+    'jpg': ['png', 'webp', 'bmp', 'tiff', 'gif', 'ico'],
+    'jpeg': ['png', 'webp', 'bmp', 'tiff', 'gif', 'ico'],
+    'gif': ['mp4', 'webm', 'png', 'jpg'],
     'bmp': ['jpg', 'png', 'webp', 'tiff'],
     'webp': ['jpg', 'png', 'bmp', 'tiff'],
     'tiff': ['jpg', 'png', 'webp', 'bmp'],
-    'mp3': ['wav', 'ogg', 'flac', 'aac', 'm4a'],
+    'ico': ['png', 'jpg'],
+    'heic': ['jpg', 'png'],  # требует wand или ImageMagick
+    'psd': ['png', 'jpg'],   # требует wand
+    'svg': ['png', 'jpg'],   # требует cairosvg
+    # Аудио
+    'mp3': ['wav', 'ogg', 'flac', 'aac', 'm4a', 'opus'],
     'wav': ['mp3', 'ogg', 'flac', 'aac', 'm4a'],
     'ogg': ['mp3', 'wav', 'flac', 'aac', 'm4a'],
     'flac': ['mp3', 'wav', 'ogg', 'aac', 'm4a'],
     'aac': ['mp3', 'wav', 'ogg', 'flac', 'm4a'],
     'm4a': ['mp3', 'wav', 'ogg', 'flac', 'aac'],
-    'mp4': ['avi', 'mkv', 'mov', 'webm', 'gif'],
+    'opus': ['mp3', 'wav', 'ogg'],
+    'wma': ['mp3', 'wav'],
+    'amr': ['mp3', 'wav'],
+    # Видео
+    'mp4': ['avi', 'mkv', 'mov', 'webm', 'gif', 'flv', '3gp'],
     'avi': ['mp4', 'mkv', 'mov', 'webm', 'gif'],
     'mkv': ['mp4', 'avi', 'mov', 'webm', 'gif'],
     'mov': ['mp4', 'avi', 'mkv', 'webm', 'gif'],
     'webm': ['mp4', 'avi', 'mkv', 'mov', 'gif'],
-    'doc': ['pdf', 'docx', 'odt', 'txt', 'rtf'],
-    'docx': ['pdf', 'doc', 'odt', 'txt', 'rtf'],
-    'odt': ['pdf', 'doc', 'docx', 'txt', 'rtf'],
-    'pdf': ['docx', 'jpg', 'png', 'txt'],
-    'txt': ['pdf', 'doc', 'docx', 'rtf'],
-    'rtf': ['pdf', 'doc', 'docx', 'txt'],
-    'zip': ['7z', 'tar', 'gz'],
-    'rar': ['zip', '7z'],
+    'flv': ['mp4', 'avi', 'mkv'],
+    '3gp': ['mp4', 'avi', 'mkv'],
+    'wmv': ['mp4', 'avi', 'mkv'],
+    'mpeg': ['mp4', 'avi', 'mkv'],
+    'vob': ['mp4', 'avi', 'mkv'],
+    # Документы
+    'txt': ['pdf', 'docx', 'odt', 'rtf'],
+    'rtf': ['pdf', 'docx', 'odt', 'txt'],
+    'doc': ['pdf', 'docx', 'odt', 'txt'],
+    'docx': ['pdf', 'doc', 'odt', 'txt'],
+    'odt': ['pdf', 'doc', 'docx', 'txt'],
+    'pdf': ['txt', 'docx', 'jpg', 'png'],  # docx через pdf2docx
+    # Электронные таблицы
+    'xls': ['xlsx', 'ods', 'csv'],
+    'xlsx': ['xls', 'ods', 'csv'],
+    'ods': ['xls', 'xlsx', 'csv'],
+    'csv': ['xls', 'xlsx', 'ods'],
+    # Презентации
+    'ppt': ['pptx', 'odp', 'pdf'],
+    'pptx': ['ppt', 'odp', 'pdf'],
+    'odp': ['ppt', 'pptx', 'pdf'],
+    # Электронные книги
+    'epub': ['mobi', 'pdf', 'fb2', 'txt'],
+    'mobi': ['epub', 'pdf', 'fb2', 'txt'],
+    'fb2': ['epub', 'mobi', 'pdf', 'txt'],
+    'cbr': ['cbz', 'pdf'],
+    'cbz': ['cbr', 'pdf'],
+    'djvu': ['pdf', 'jpg'],
+    # Субтитры
+    'srt': ['vtt', 'ass', 'ssa', 'lrc'],
+    'vtt': ['srt', 'ass', 'ssa', 'lrc'],
+    'ass': ['srt', 'vtt', 'ssa'],
+    'ssa': ['srt', 'vtt', 'ass'],
+    'lrc': ['srt', 'vtt'],
+    # Шрифты (пока базово)
+    'ttf': ['otf', 'woff', 'woff2'],
+    'otf': ['ttf', 'woff', 'woff2'],
+    'woff': ['ttf', 'otf', 'woff2'],
+    'woff2': ['ttf', 'otf', 'woff'],
+    # Прочее
+    'torrent': ['txt'],  # просто копирование
 }
 
 def get_target_formats(ext):
@@ -446,7 +489,7 @@ def handle_update(update):
         logger.warning(f"Unknown update type: {update_type}")
 
 def process_conversion(user_id, target_format, ext, input_path, mid, free=False):
-    # Убираем клавиатуру
+    # Убираем клавиатуру в исходном сообщении
     try:
         bot.edit_message(
             message_id=mid,
@@ -466,12 +509,24 @@ def process_conversion(user_id, target_format, ext, input_path, mid, free=False)
         output_path = converter.convert(input_path, target_format)
         logger.info(f"Converted to {output_path}")
 
+        # Проверка размера файла (чтобы избежать проблем с MAX)
+        file_size = os.path.getsize(output_path)
+        max_size = 100 * 1024 * 1024  # 100 МБ (можно настроить под лимиты MAX)
+        if file_size > max_size:
+            bot.send_message(
+                user_id=user_id,
+                text=f"⚠️ Файл слишком большой ({file_size // 1024 // 1024} МБ). MAX может не принять его. Попробуйте другой формат или уменьшите файл."
+            )
+            # Не возвращаемся, пробуем загрузить (вдруг пройдёт)
+            # Если не хотите пробовать, можно поставить return
+
+        # Определяем тип для загрузки в MAX
         tgt_ext = target_format.lower()
-        if tgt_ext in ['jpg','jpeg','png','gif','bmp','webp','tiff']:
-            file_type = 'file'  # или 'image', если нужен предпросмотр
-        elif tgt_ext in ['mp3','wav','ogg','flac','aac','m4a']:
+        if tgt_ext in ['jpg','jpeg','png','gif','bmp','webp','tiff','ico']:
+            file_type = 'image'
+        elif tgt_ext in ['mp3','wav','ogg','flac','aac','m4a','opus','wma','amr']:
             file_type = 'audio'
-        elif tgt_ext in ['mp4','avi','mkv','mov','webm']:
+        elif tgt_ext in ['mp4','avi','mkv','mov','webm','flv','3gp','wmv','mpeg','vob']:
             file_type = 'video'
         else:
             file_type = 'file'
@@ -479,16 +534,21 @@ def process_conversion(user_id, target_format, ext, input_path, mid, free=False)
 
         token = bot.upload_file(output_path, file_type)
         if token:
-            time.sleep(1.5)  # ждём готовности файла на сервере MAX
+            # Ждём, чтобы файл точно обработался на сервере MAX (для больших файлов пауза может быть больше)
+            time.sleep(2)
             attachment = bot.build_attachment(file_type, token)
             caption = f"✅ Конвертация в {target_format.upper()} выполнена!"
             if not free:
-                caption += f"\n(списано {get_price('converter')} токенов)"
+                price = get_price('converter')
+                caption += f"\n(списано {price} токенов)"
             bot.send_message(user_id=user_id, text=caption, attachments=[attachment])
             logger.info(f"Result sent to user {user_id}")
         else:
-            bot.send_message(user_id=user_id, text="❌ Не удалось загрузить результат.")
+            bot.send_message(user_id=user_id, text="❌ Не удалось загрузить результат в MAX.")
             logger.error("Upload returned no token")
+    except subprocess.TimeoutExpired:
+        logger.error("Conversion timeout")
+        bot.send_message(user_id=user_id, text="❌ Превышено время конвертации. Попробуйте позже.")
     except Exception as e:
         logger.error(f"Conversion error: {e}", exc_info=True)
         bot.send_message(user_id=user_id, text="❌ Произошла ошибка при конвертации. Попробуйте позже.")
