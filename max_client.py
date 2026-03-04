@@ -75,8 +75,16 @@ class MaxBotClient:
         with open(file_path, "rb") as f:
             files = {"data": (file_path, f, "application/octet-stream")}
             resp = requests.post(upload_url, files=files, timeout=60)
-            resp.raise_for_status()
-            result = resp.json()
+            try:
+                resp.raise_for_status()
+            except requests.HTTPError as e:
+                logger.error(f"CDN upload failed: {resp.status_code} - {resp.text[:200]}")
+                raise
+            try:
+                result = resp.json()
+            except ValueError as e:
+                logger.error(f"CDN response not JSON: {resp.text[:200]}")
+                raise
             token = result.get('token')
             if not token and 'photos' in result:
                 for photo in result['photos'].values():

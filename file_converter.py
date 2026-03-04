@@ -60,24 +60,33 @@ class FileConverter:
         return output_path
 
     def _convert_document(self, input_path, target_format):
-        if not shutil.which('libreoffice'):
-            logger.error("libreoffice not found in PATH")
-            raise Exception("libreoffice is not installed")
         base = os.path.splitext(os.path.basename(input_path))[0]
         output_path = os.path.join(self.temp_dir, f"{base}.{target_format.lower()}")
-        # Используем libreoffice в headless-режиме
+    
+        # Специальная обработка для PDF -> txt
+        if input_path.endswith('.pdf') and target_format.lower() == 'txt':
+            cmd = ['pdftotext', input_path, output_path]
+            logger.info(f"Running: {' '.join(cmd)}")
+            subprocess.run(cmd, check=True, capture_output=True)
+            if os.path.exists(output_path):
+                return output_path
+            else:
+                raise Exception("pdftotext failed to produce output")
+    
+        # Для остальных документов используем libreoffice
         cmd = [
             'libreoffice', '--headless', '--convert-to', target_format,
             '--outdir', self.temp_dir, input_path
         ]
         logger.info(f"Running: {' '.join(cmd)}")
         subprocess.run(cmd, check=True, capture_output=True)
-        # libreoffice создаст файл в выходной директории с именем base.target_format
+    
+        # Ищем выходной файл (libreoffice может изменить имя)
         expected = os.path.join(self.temp_dir, f"{base}.{target_format.lower()}")
         if os.path.exists(expected):
             return expected
         else:
-            # На случай, если имя немного отличается (например, добавил суффикс)
+            # Иногда libreoffice добавляет суффикс или меняет расширение
             for f in os.listdir(self.temp_dir):
                 if f.endswith(f".{target_format.lower()}"):
                     return os.path.join(self.temp_dir, f)
