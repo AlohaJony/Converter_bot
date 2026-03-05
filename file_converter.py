@@ -59,7 +59,11 @@ class FileConverter:
         from pydub import AudioSegment
         audio = AudioSegment.from_file(input_path)
         output_path = self._get_output_path(input_path, target_format)
-        audio.export(output_path, format=target_format)
+        # Для aac и m4a используем формат 'ipod' (MP4 контейнер с AAC)
+        if target_format in ('aac', 'm4a'):
+            audio.export(output_path, format='ipod', codec='aac')
+        else:
+            audio.export(output_path, format=target_format)
         return output_path
 
     # --- Видео (через moviepy / ffmpeg) ---
