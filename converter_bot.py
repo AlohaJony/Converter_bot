@@ -480,7 +480,7 @@ def handle_update(update):
                     }
                     bot.send_message(
                         user_id=user_id,
-                        text=f"❌ Недостаточно токенов. Стоимость: {price} токенов. Ваш баланс: {balance}.",
+                        text=f"❌ Недостаточно токенов. Стоимость: {price} токенов. Ваш баланс: {balance}.\nПополните баланс в боте-навигаторе:",
                         attachments=[keyboard]
                     )
         else:
@@ -518,30 +518,31 @@ def process_conversion(user_id, target_format, ext, input_path, mid, free=False)
                 text=f"⚠️ Файл слишком большой ({file_size // 1024 // 1024} МБ). MAX может не принять его. Попробуйте другой формат или уменьшите файл."
             )
             # Не возвращаемся, пробуем загрузить (вдруг пройдёт)
-            # Если не хотите пробовать, можно поставить return
 
-        # Определяем тип для загрузки в MAX
-        tgt_ext = target_format.lower()
-        if tgt_ext in ['jpg','jpeg','png','gif','bmp','webp','tiff','ico']:
-            file_type = 'image'
-        elif tgt_ext in ['mp3','wav','ogg','flac','aac','m4a','opus','wma','amr']:
-            file_type = 'audio'
-        elif tgt_ext in ['mp4','avi','mkv','mov','webm','flv','3gp','wmv','mpeg','vob']:
-            file_type = 'video'
-        else:
-            file_type = 'file'
-        logger.info(f"Detected file_type: {file_type}")
+        # Для всех результатов используем тип 'file', чтобы избежать сжатия и ошибок 415
+        file_type = 'file'
+        logger.info(f"Using file_type: file for all outputs")
 
         token = bot.upload_file(output_path, file_type)
         if token:
             # Ждём, чтобы файл точно обработался на сервере MAX (для больших файлов пауза может быть больше)
             time.sleep(2)
             attachment = bot.build_attachment(file_type, token)
+
+            # Формируем подпись с промо
             caption = f"✅ Конвертация в {target_format.upper()} выполнена!"
             if not free:
                 price = get_price('converter')
-                caption += f"\n(списано {price} токенов)"
-            bot.send_message(user_id=user_id, text=caption, attachments=[attachment])
+                caption += f"\n💰 Списано {price} токенов."
+            # Добавляем ссылку на навигатор (используем Markdown)
+            caption += f"\n\n🔗 Узнайте о других полезных ботах в нашем семействе: [Бот-Навигатор]({NAVIGATOR_BOT_LINK})"
+
+            bot.send_message(
+                user_id=user_id,
+                text=caption,
+                attachments=[attachment],
+                format='markdown'  # чтобы ссылка работала
+            )
             logger.info(f"Result sent to user {user_id}")
         else:
             bot.send_message(user_id=user_id, text="❌ Не удалось загрузить результат в MAX.")
