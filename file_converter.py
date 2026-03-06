@@ -71,12 +71,16 @@ class FileConverter:
         from moviepy.editor import VideoFileClip
         clip = VideoFileClip(input_path)
         output_path = self._get_output_path(input_path, target_format)
-        if target_format == 'gif':
-            clip.write_gif(output_path)
-        else:
-            clip.write_videofile(output_path, codec='libx264')
-        clip.close()
-        return output_path
+        try:
+            if target_format == 'gif':
+                # Уменьшаем размер для GIF
+                clip_resized = clip.resize(height=480)
+                clip_resized.write_gif(output_path, fps=10, program='ffmpeg')
+            else:
+                clip.write_videofile(output_path, codec='libx264')
+            return output_path
+        finally:
+            clip.close()
 
     # --- Документы ---
     def _convert_document(self, input_path, target_format):

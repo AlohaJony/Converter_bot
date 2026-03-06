@@ -489,7 +489,17 @@ def handle_update(update):
         logger.warning(f"Unknown update type: {update_type}")
 
 def process_conversion(user_id, target_format, ext, input_path, mid, free=False):
-    # Убираем клавиатуру в исходном сообщении
+    # Проверка размера исходного файла
+    input_size = os.path.getsize(input_path)
+    max_input_size = 100 * 1024 * 1024  # 100 МБ
+    if input_size > max_input_size:
+        bot.send_message(
+            user_id=user_id,
+            text=f"⚠️ Исходный файл слишком большой ({input_size // 1024 // 1024} МБ). Максимальный размер для конвертации — {max_input_size // 1024 // 1024} МБ."
+        )
+        return
+
+    # Убираем клавиатуру
     try:
         bot.edit_message(
             message_id=mid,
@@ -509,41 +519,50 @@ def process_conversion(user_id, target_format, ext, input_path, mid, free=False)
         output_path = converter.convert(input_path, target_format)
         logger.info(f"Converted to {output_path}")
 
-        # Проверка размера файла (чтобы избежать проблем с MAX)
+        # Проверка размера выходного файла (опционально)
         file_size = os.path.getsize(output_path)
-        max_size = 100 * 1024 * 1024  # 100 МБ (можно настроить под лимиты MAX)
-        if file_size > max_size:
+        if file_size > 100 * 1024 * 1024:
             bot.send_message(
                 user_id=user_id,
-                text=f"⚠️ Файл слишком большой ({file_size // 1024 // 1024} МБ). MAX может не принять его. Попробуйте другой формат или уменьшите файл."
+                text=f"⚠️ Выходной файл очень большой ({file_size // 1024 // 1024} МБ). Отправка может занять время."
             )
-            # Не возвращаемся, пробуем загрузить (вдруг пройдёт)
 
-        # Для всех результатов используем тип 'file', чтобы избежать сжатия и ошибок 415
+        # Всегда используем тип 'file'
         file_type = 'file'
-        logger.info(f"Using file_type: file for all outputs")
+        logger.info("Using file_type=file for all outputs")
 
         token = bot.upload_file(output_path, file_type)
         if token:
-            # Ждём, чтобы файл точно обработался на сервере MAX (для больших файлов пауза может быть больше)
-            time.sleep(2)
-            attachment = bot.build_attachment(file_type, token)
-
-            # Формируем подпись с промо
-            caption = f"✅ Конвертация в {target_format.upper()} выполнена!"
+            caption = f"✅ Конвертация в {target_format.upper()} выполнена!\n"
             if not free:
                 price = get_price('converter')
-                caption += f"\n💰 Списано {price} токенов."
-            # Добавляем ссылку на навигатор (используем Markdown)
-            caption += f"\n\n🔗 Узнайте о других полезных ботах в нашем семействе: [Бот-Навигатор]({NAVIGATOR_BOT_LINK})"
+                caption += f"💰 Списано {price} токенов.\n"
+            caption += f"\n🔗 Узнайте о других полезных ботах: [Бот-Навигатор]({NAVIGATOR_BOT_LINK})"
 
-            bot.send_message(
-                user_id=user_id,
-                text=caption,
-                attachments=[attachment],
-                format='markdown'  # чтобы ссылка работала
-            )
-            logger.info(f"Result sent to user {user_id}")
+            # Повторные попытки отправки с увеличивающейся задержкой
+            max_retries = 5
+            sent = False
+            for attempt in range(max_retries):
+                time.sleep(2 ** attempt)  # 1, 2, 4, 8, 16 сек
+                try:
+                    attachment = bot.build_attachment(file_type, token)
+                    bot.send_message(
+                        user_id=user_id,
+                        text=caption,
+                        attachments=[attachment],
+                        format='markdown'
+                    )
+                    logger.info(f"Result sent on attempt {attempt+1}")
+                    sent = True
+                    break
+                except Exception as e:
+                    if "attachment.not.ready" in str(e):
+                        logger.warning(f"Attachment not ready, retrying ({attempt+1}/{max_retries})")
+                        continue
+                    else:
+                        raise  # другая ошибка
+            if not sent:
+                bot.send_message(user_id=user_id, text="❌ Не удалось отправить файл после нескольких попыток. Попробуйте позже.")
         else:
             bot.send_message(user_id=user_id, text="❌ Не удалось загрузить результат в MAX.")
             logger.error("Upload returned no token")
@@ -589,7 +608,23 @@ def main():
                     logger.error(f"Error handling update: {e}", exc_info=True)
         except Exception as e:
             logger.error(f"Polling error: {e}")
-            time.sleep(5)
+            # После получения token
+            max_retries = 5
+            for attempt in range(max_retries):
+                time.sleep(2 ** attempt)  # 1, 2, 4, 8, 16 секунд
+                try:
+                    attachment = bot.build_attachment(file_type, token)
+                    bot.send_message(user_id=user_id, text=caption, attachments=[attachment], format='markdown')
+                    logger.info(f"Result sent on attempt {attempt+1}")
+                    break
+                except Exception as e:
+                    if "attachment.not.ready" in str(e):
+                        logger.warning(f"Attachment not ready, retrying ({attempt+1}/{max_retries})")
+                        continue
+                    else:
+                        raise  # другая ошибка
+            else:
+                bot.send_message(user_id=user_id, text="❌ Не удалось отправить файл после нескольких попыток. Попробуйте позже.")
 
 if __name__ == '__main__':
     main()
