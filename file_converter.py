@@ -73,11 +73,21 @@ class FileConverter:
         output_path = self._get_output_path(input_path, target_format)
         try:
             if target_format == 'gif':
-                # Уменьшаем размер для GIF
                 clip_resized = clip.resize(height=480)
                 clip_resized.write_gif(output_path, fps=10, program='ffmpeg')
+            elif target_format == 'webm':
+                # Для WebM: видео VP9 или VP8, аудио Vorbis
+                clip.write_videofile(output_path, codec='libvpx-vp9', audio_codec='libvorbis')
+            elif target_format == '3gp':
+                # Для 3GP: видео H.264, аудио AAC (MP3 не поддерживается)
+                clip.write_videofile(output_path, codec='libx264', audio_codec='aac', 
+                                 ffmpeg_params=['-strict', 'experimental'])
+            elif target_format == 'flv':
+                # Для FLV: видео H.264, аудио AAC (подходит)
+                clip.write_videofile(output_path, codec='libx264', audio_codec='aac')
             else:
-                clip.write_videofile(output_path, codec='libx264')
+                # Для остальных (mp4, avi, mkv, mov) – стандартные настройки
+                clip.write_videofile(output_path, codec='libx264', audio_codec='aac')
             return output_path
         finally:
             clip.close()
